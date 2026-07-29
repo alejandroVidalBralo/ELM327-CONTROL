@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Opel Corsa 2007 - OBD Dashboard & Terminal</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #38bdf8;
+      --text: #f8fafc;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --term-bg: #020617;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      margin: 5px 0;
+    }
+
+    #status {
+      font-size: 0.85rem;
+      color: var(--red);
+      margin-bottom: 15px;
+      font-weight: bold;
+    }
+
+    .top-controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+
+    button {
+      background-color: var(--accent);
+      color: #000;
+      border: none;
+      padding: 10px 20px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3);
+      transition: transform 0.1s, opacity 0.2s;
+    }
+
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.sec { background-color: #475569; color: #fff; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+      width: 100%;
+      max-width: 600px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      padding: 15px 10px;
+      border-radius: 12px;
+      text-align: center;
+      border: 1px solid #334155;
+    }
+
+    .label {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .value {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--accent);
+      margin-top: 5px;
+    }
+
+    .unit {
+      font-size: 0.85rem;
+      color: #cbd5e1;
+    }
+
+    /* Estilos del Monitor Serie */
+    .terminal-container {
+      width: 100%;
+      max-width: 600px;
+      background-color: var(--card-bg);
+      border-radius: 12px;
+      border: 1px solid #334155;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .terminal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: bold;
+      font-size: 0.9rem;
+      color: #94a3b8;
+    }
+
+    #console {
+      background-color: var(--term-bg);
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      height: 200px;
+      overflow-y: auto;
+      padding: 10px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .log-tx { color: var(--accent); }
+    .log-rx { color: var(--green); }
+    .log-sys { color: var(--yellow); }
+    .log-err { color: var(--red); }
+
+    .input-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background-color: var(--term-bg);
+      border: 1px solid #334155;
+      color: #fff;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+    }
+
+    input[type="text"]:focus {
+      outline: 1px solid var(--accent);
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Opel Corsa 2007</h1>
+  <div id="status">Desconectado</div>
+
+  <div class="top-controls">
+    <button id="btnConnect">Conectar OBDBLE</button>
+    <button id="btnClear" class="sec">Limpiar Logs</button>
+  </div>
+
+  <!-- Dashboard de Relojes -->
+  <div class="grid">
+    <div class="card">
+      <div class="label">Revoluciones</div>
+      <div class="value" id="rpm">--</div>
+      <div class="unit">RPM</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Velocidad</div>
+      <div class="value" id="speed">--</div>
+      <div class="unit">km/h</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Refrigerante</div>
+      <div class="value" id="temp">--</div>
+      <div class="unit">°C</div>
+    </div>
+
+    <div class="card">
+      <div class="label">Batería</div>
+      <div class="value" id="volts">--</div>
+      <div class="unit">V</div>
+    </div>
+  </div>
+
+  <!-- Monitor Serie -->
+  <div class="terminal-container">
+    <div class="terminal-header">
+      <span>Monitor Serie (Terminal AT/OBD)</span>
+    </div>
+    
+    <div id="console"></div>
+
+    <div class="input-group">
+      <input type="text" id="cmdInput" placeholder="Ej: AT RV, 0100, 03..." disabled>
+      <button id="btnSend" disabled>Enviar</button>
+    </div>
+  </div>
+
+  <script>
+    let bleDevice;
+    let rxChar, txChar;
+    let rxBuffer = "";
+    let pollingInterval;
+
+    const SERVICE_UUID = '0000fff0-0000-1000-8000-00805f9b34fb';
+    const RX_UUID      = '0000fff1-0000-1000-8000-00805f9b34fb'; // Notify
+    const TX_UUID      = '0000fff2-0000-1000-8000-00805f9b34fb'; // Write
+
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+
+    const statusEl = document.getElementById('status');
+    const btnConnect = document.getElementById('btnConnect');
+    const btnSend = document.getElementById('btnSend');
+    const cmdInput = document.getElementById('cmdInput');
+    const consoleEl = document.getElementById('console');
+
+    // Conectar BLE
+    btnConnect.addEventListener('click', async () => {
+      try {
+        log("Iniciando búsqueda BLE...", "sys");
+        statusEl.innerText = "Buscando...";
+        statusEl.style.color = "var(--yellow)";
+
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: 'OBDBLE' }],
+          optionalServices: [SERVICE_UUID]
+        });
+
+        bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+        const server = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+
+        rxChar = await service.getCharacteristic(RX_UUID);
+        await rxChar.startNotifications();
+        rxChar.addEventListener('characteristicvaluechanged', handleData);
+
+        txChar = await service.getCharacteristic(TX_UUID);
+
+        log("GATT Conectado. Inicializando ELM327...", "sys");
+        statusEl.innerText = "Inicializando ELM327...";
+        
+        // Secuencia básica de arranque
+        await sendCmd("AT Z");
+        await sendCmd("AT E0");
+        await sendCmd("AT SP 6"); // ISO 15765-4 CAN (Opel Corsa)
+
+        statusEl.innerText = "¡Conectado!";
+        statusEl.style.color = "var(--green)";
+        btnConnect.disabled = true;
+        cmdInput.disabled = false;
+        btnSend.disabled = false;
+
+        // Iniciar lecturas cíclicas cada 500ms
+        let step = 0;
+        pollingInterval = setInterval(async () => {
+          // Solo consulta si el usuario no tiene escrito un comando a punto de enviar
+          if (document.activeElement !== cmdInput || cmdInput.value.trim() === "") {
+            if (step === 0) await sendCmd("01 0C", true);      // RPM
+            else if (step === 1) await sendCmd("01 0D", true); // Speed
+            else if (step === 2) await sendCmd("01 05", true); // Temp
+            else if (step === 3) await sendCmd("AT RV", true); // Battery
+
+            step = (step + 1) % 4;
+          }
+        }, 500);
+
+      } catch (err) {
+        log("Error: " + err.message, "err");
+        statusEl.innerText = "Error de conexión";
+        statusEl.style.color = "var(--red)";
+      }
+    });
+
+    // Enviar comando manual desde el input
+    btnSend.addEventListener('click', sendManualCmd);
+    cmdInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendManualCmd();
+    });
+
+    async function sendManualCmd() {
+      const cmd = cmdInput.value.trim();
+      if (cmd) {
+        await sendCmd(cmd, false);
+        cmdInput.value = "";
+      }
+    }
+
+    // Función unificada para enviar comandos
+    async function sendCmd(cmd, isAuto = false) {
+      if (txChar) {
+        if (!isAuto) log("TX -> " + cmd, "tx"); // Solo imprime en la consola si es manual
+        await txChar.writeValueWithoutResponse(enc.encode(cmd + "\r"));
+      }
+    }
+
+    // Manejar recepción de datos
+    function handleData(event) {
+      rxBuffer += dec.decode(event.target.value);
+
+      if (rxBuffer.includes(">")) {
+        const clean = rxBuffer.replace(">", "").trim();
+        if (clean) {
+          log("RX <- " + clean, "rx");
+          parseOBD(clean);
+        }
+        rxBuffer = "";
+      }
+    }
+
+    // Parseador de datos
+    function parseOBD(res) {
+      // RPM (01 0C)
+      if (res.includes("41 0C")) {
+        const p = res.split(" ");
+        const i = p.indexOf("0C");
+        if (i !== -1 && p[i+1] && p[i+2]) {
+          const rpm = Math.round(((parseInt(p[i+1],16) * 256) + parseInt(p[i+2],16)) / 4);
+          document.getElementById('rpm').innerText = rpm;
+        }
+      }
+      // Velocidad (01 0D)
+      else if (res.includes("41 0D")) {
+        const p = res.split(" ");
+        const i = p.indexOf("0D");
+        if (i !== -1 && p[i+1]) {
+          document.getElementById('speed').innerText = parseInt(p[i+1], 16);
+        }
+      }
+      // Temp. Refrigerante (01 05)
+      else if (res.includes("41 05")) {
+        const p = res.split(" ");
+        const i = p.indexOf("05");
+        if (i !== -1 && p[i+1]) {
+          document.getElementById('temp').innerText = parseInt(p[i+1], 16) - 40;
+        }
+      }
+      // Voltaje Batería (AT RV)
+      else if (res.includes("V")) {
+        const match = res.match(/\d+\.\d+V/);
+        if (match) {
+          document.getElementById('volts').innerText = match[0].replace("V", "");
+        }
+      }
+    }
+
+    // Imprimir en la consola
+    function log(msg, type = "sys") {
+      const line = document.createElement('div');
+      line.className = "log-" + type;
+      line.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight; // Auto-scroll al final
+    }
+
+    document.getElementById('btnClear').addEventListener('click', () => {
+      consoleEl.innerHTML = "";
+    });
+
+    function onDisconnected() {
+      log("Dispositivo desconectado", "err");
+      statusEl.innerText = "Desconectado";
+      statusEl.style.color = "var(--red)";
+      btnConnect.disabled = false;
+      cmdInput.disabled = true;
+      btnSend.disabled = true;
+      clearInterval(pollingInterval);
+    }
+  </script>
+</body>
+</html>
