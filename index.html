@@ -555,7 +555,7 @@
       padding: 16px;
       display: flex;
       flex-direction: column;
-      height: 520px;
+      height: 560px;
     }
 
     .terminal-toolbar {
@@ -608,6 +608,16 @@
     .log-sys { color: var(--accent-yellow); }
     .log-err { color: var(--accent-red); }
 
+    .ascii-decode-tag {
+      color: var(--accent-purple);
+      font-weight: 600;
+      margin-left: 8px;
+      background: rgba(139, 92, 246, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+    }
+
     .quick-macros {
       display: flex;
       gap: 6px;
@@ -643,6 +653,23 @@
       flex: 1;
       font-family: 'JetBrains Mono', monospace;
       text-transform: uppercase;
+    }
+
+    .decoder-tool-panel {
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px dashed var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .decoder-tool-panel input {
+      flex: 1;
+      min-width: 200px;
     }
 
     /* Sensor Monitor Table */
@@ -763,7 +790,7 @@
       header { padding: 12px 16px; }
       main { padding: 16px; }
       .dashboard-grid { grid-template-columns: 1fr; }
-      .terminal-card { height: 450px; }
+      .terminal-card { height: 500px; }
     }
   </style>
 </head>
@@ -1026,17 +1053,26 @@
     <div id="tab-terminal" class="tab-content">
       <div class="terminal-card">
         <div class="terminal-toolbar">
-          <span class="terminal-title">Console Output [ELM327 BLE Stream]</span>
+          <span class="terminal-title">Console Output [Stream ELM327 en Texto Plano ASCII]</span>
           <div style="display: flex; gap: 8px;">
+            <button id="btnToggleDecoder" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">🔤 Decodificador Hex/ASCII</button>
             <button id="btnClearLog" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">Limpiar Log</button>
-            <button id="btnExportLog" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">Exportar Log</button>
+            <button id="btnExportLog" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.78rem;">Exportar Log (.txt)</button>
           </div>
+        </div>
+
+        <!-- Inline Decoder Box -->
+        <div id="decoderPanel" class="decoder-tool-panel" style="display: none;">
+          <span style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600;">Convertidor Hex ➔ Texto Plano:</span>
+          <input type="text" id="hexInputDecoder" placeholder="Ej: 49 02 01 57 30 4C (Respuesta VIN u OBD)...">
+          <span id="hexDecoderResult" style="font-family: monospace; font-size: 0.88rem; color: var(--accent-green); font-weight: 700;"></span>
         </div>
 
         <div class="quick-macros">
           <button class="macro-btn" data-cmd="AT Z">AT Z (Reset)</button>
           <button class="macro-btn" data-cmd="AT RV">AT RV (Voltaje)</button>
           <button class="macro-btn" data-cmd="AT DP">AT DP (Protocolo)</button>
+          <button class="macro-btn" data-cmd="09 02">09 02 (VIN Coche)</button>
           <button class="macro-btn" data-cmd="01 00">01 00 (PIDs 1-20)</button>
           <button class="macro-btn" data-cmd="01 0C">01 0C (RPM)</button>
           <button class="macro-btn" data-cmd="01 0D">01 0D (Velocidad)</button>
@@ -1045,11 +1081,11 @@
         </div>
 
         <div id="terminalConsole" class="terminal-console">
-          <div class="log-line log-sys"><span class="log-time">[00:00:00]</span> Terminal listo. Conecta un adaptador ELM327 BLE o activa el Modo Demo.</div>
+          <div class="log-line log-sys"><span class="log-time">[00:00:00]</span> [SYS] Terminal listo en Texto Plano ASCII. Conecta un adaptador ELM327 BLE o activa el Modo Demo.</div>
         </div>
 
         <div class="terminal-input-group">
-          <input type="text" id="terminalInput" class="terminal-input" placeholder="Escribe comando AT u OBD... (Ej: AT Z, 010C, 03)" disabled autocomplete="off">
+          <input type="text" id="terminalInput" class="terminal-input" placeholder="Escribe comando AT u OBD... (Ej: AT Z, 0902, 010C, 03)" disabled autocomplete="off">
           <button id="btnSendTerminal" class="btn btn-primary" disabled>Enviar</button>
         </div>
       </div>
@@ -1300,19 +1336,41 @@
       statusText.innerText = text;
     }
 
-    // BLE Data Receiving Buffer
+    // BLE Data Receiving Buffer with Clean Plain Text Normalization
     function handleBLEData(event) {
-      const dec = new TextDecoder();
+      const dec = new TextDecoder("utf-8");
       rxBuffer += dec.decode(event.target.value);
 
       if (rxBuffer.includes(">")) {
-        const clean = rxBuffer.replace(">", "").trim();
+        const clean = cleanTextOutput(rxBuffer);
         if (clean) {
           log("RX <- " + clean, "rx");
           parseOBDResponse(clean);
         }
         rxBuffer = "";
       }
+    }
+
+    // Function to sanitize raw stream text into clean plain text
+    function cleanTextOutput(rawStr) {
+      return rawStr
+        .replace(/[\r\n>]/g, ' ')  // Replace CR/LF/Prompt with space
+        .replace(/\x00/g, '')       // Strip null bytes
+        .replace(/\s+/g, ' ')       // Collapse multiple spaces
+        .trim();
+    }
+
+    // Hex to ASCII Plain Text Decoder Helper
+    function hexToAsciiString(hexStr) {
+      const hexes = hexStr.replace(/[\r\n>]/g, ' ').trim().split(/\s+/);
+      let ascii = "";
+      for (let hex of hexes) {
+        const num = parseInt(hex, 16);
+        if (!isNaN(num) && num >= 32 && num <= 126) {
+          ascii += String.fromCharCode(num);
+        }
+      }
+      return ascii;
     }
 
     // --- Command Queue Engine ---
@@ -1572,12 +1630,33 @@
       });
     });
 
-    // Console Logging Helper
+    // Hex Decoder Panel Toggle & Conversion
+    const decoderPanel = document.getElementById('decoderPanel');
+    document.getElementById('btnToggleDecoder').addEventListener('click', () => {
+      decoderPanel.style.display = decoderPanel.style.display === 'none' ? 'flex' : 'none';
+    });
+
+    document.getElementById('hexInputDecoder').addEventListener('input', (e) => {
+      const ascii = hexToAsciiString(e.target.value);
+      document.getElementById('hexDecoderResult').innerText = ascii ? `➔ "${ascii}"` : '';
+    });
+
+    // Console Logging Helper with Automatic Hex-to-ASCII Interpretation
     function log(msg, type = "sys") {
       const timeStr = new Date().toLocaleTimeString();
+      const cleanMsg = cleanTextOutput(msg);
+
+      let asciiTag = "";
+      if (type === "rx" && cleanMsg.length > 5) {
+        const ascii = hexToAsciiString(cleanMsg);
+        if (ascii && ascii.length >= 2) {
+          asciiTag = `<span class="ascii-decode-tag">[Texto: ${escapeHtml(ascii)}]</span>`;
+        }
+      }
+
       const line = document.createElement('div');
       line.className = `log-line log-${type}`;
-      line.innerHTML = `<span class="log-time">[${timeStr}]</span> ${escapeHtml(msg)}`;
+      line.innerHTML = `<span class="log-time">[${timeStr}]</span> ${escapeHtml(cleanMsg)} ${asciiTag}`;
       terminalConsole.appendChild(line);
       terminalConsole.scrollTop = terminalConsole.scrollHeight;
     }
@@ -1590,13 +1669,17 @@
       terminalConsole.innerHTML = "";
     });
 
+    // Export Log cleanly as Plain Text (.txt)
     document.getElementById('btnExportLog').addEventListener('click', () => {
-      const content = Array.from(terminalConsole.querySelectorAll('.log-line'))
-        .map(l => l.innerText).join('\n');
-      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const logLines = Array.from(terminalConsole.querySelectorAll('.log-line'));
+      const textContent = logLines.map(line => {
+        return line.innerText.replace(/\s+/g, ' ').trim();
+      }).join('\r\n');
+
+      const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `elm327-log-${Date.now()}.txt`;
+      a.download = `elm327-terminal-log-${Date.now()}.txt`;
       a.click();
     });
 
@@ -1637,6 +1720,7 @@
       if (cleanCmd === "ATZ") response = "ELM327 v2.1";
       else if (cleanCmd === "ATRV") response = (12.4 + Math.random() * 1.8).toFixed(1) + "V";
       else if (cleanCmd === "ATDP") response = "AUTO, ISO 15765-4 (CAN 11/500)";
+      else if (cleanCmd === "0902") response = "49 02 01 57 30 4C 30 30 30 30 30 30 31 32 33 34 35 36"; // Mock VIN: W0L000000123456
       else if (cleanCmd === "010C") {
         const rpmVal = Math.round(800 + Math.random() * 2500);
         const hexVal = (rpmVal * 4).toString(16).padStart(4, '0');
