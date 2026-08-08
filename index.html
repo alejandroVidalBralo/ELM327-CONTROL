@@ -374,7 +374,7 @@
 
         isConnected = true;
         btnConnect.innerText = "Desconectar";
-        btnConnect.classList.replace('primary', '');
+        btnConnect.classList.remove('primary');
         updateStatus("connected", "Conectado");
         log("Conectado con éxito al ESP32.", "sys");
 
