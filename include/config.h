@@ -4,10 +4,14 @@
 #include <Arduino.h>
 
 // ==========================================
-// CONFIGURACIÓN DE HARDWARE LED
+// CONFIGURACIÓN DE HARDWARE LED (4 CANALES SIMULTÁNEOS)
 // ==========================================
-#define LED_PIN         33          // Pin GPIO de salida principal
-#define NUM_LEDS        83          // 83 LEDs por tira (según test_led_demos.cpp)
+#define LED_PIN_1       33          // Canal 1 (GPIO 33)
+#define LED_PIN_2       32          // Canal 2 (GPIO 32)
+#define LED_PIN_3       25          // Canal 3 (GPIO 25)
+#define LED_PIN_4       26          // Canal 4 (GPIO 26)
+
+#define NUM_LEDS        83          // 83 LEDs por tira (4 tiras independientes = 332 LEDs en total)
 #define LED_TYPE        WS2812B
 #define COLOR_ORDER     GRB
 #define DEFAULT_BRIGHTNESS 60       // Brillo inicial (0 - 255)

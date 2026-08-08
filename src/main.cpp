@@ -1,9 +1,9 @@
 /**
- * ESP32 ELM327 Control Center & Ultra-Fluid LED Shift Light System
+ * ESP32 ELM327 Control Center & Ultra-Fluid LED Shift Light System (4 Canales Simultáneos)
  * 
  * Arquitectura Dual-Core FreeRTOS:
  * - Core 0: Tarea BLE (NimBLE Client para ELM327 + NimBLE Server para Web Bluetooth)
- * - Core 1: Tarea FastLED (Renderizado a 60 FPS con suavizado sub-LED y filtro exponencial)
+ * - Core 1: Tarea FastLED (Renderizado 4 Canales GPIO 33, 32, 25, 26 a 60 FPS)
  */
 
 #include <Arduino.h>
@@ -24,8 +24,27 @@ static uint8_t  g_brightness = DEFAULT_BRIGHTNESS;
 static bool     g_elmConnected = false;
 static bool     g_webConnected = false;
 
-// Buffers de LEDs (83 LEDs en GPIO 33)
-static CRGB g_leds[NUM_LEDS];
+// Buffers para los 4 canales de salida independientes (83 LEDs por tira)
+static CRGB g_leds33[NUM_LEDS];
+static CRGB g_leds32[NUM_LEDS];
+static CRGB g_leds25[NUM_LEDS];
+static CRGB g_leds26[NUM_LEDS];
+
+// Helper para replicar color en los 4 canales simultáneos
+inline void setPixel4Strips(int index, CRGB color) {
+    if (index >= 0 && index < NUM_LEDS) {
+        g_leds33[index] = color;
+        g_leds32[index] = color;
+        g_leds25[index] = color;
+        g_leds26[index] = color;
+    }
+}
+
+inline void clear4Strips() {
+    for (int i = 0; i < NUM_LEDS; i++) {
+        setPixel4Strips(i, CRGB::Black);
+    }
+}
 
 // UUIDs BLE del ELM327
 static const char* ELM_SERVICES[] = {
@@ -117,7 +136,6 @@ class ElmScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
             }
         }
 
-        // Búsqueda alternativa por nombre conocido
         std::string name = advertisedDevice->getName();
         if (name.find("OBD") != std::string::npos || name.find("ELM") != std::string::npos || 
             name.find("V-LINK") != std::string::npos || name.find("Viecar") != std::string::npos) {
@@ -198,23 +216,26 @@ void setup() {
 
     Serial.println("\n=======================================================");
     Serial.println("  ESP32 DUAL-CORE ELM327 DIESEL CONTROL CENTER");
-    Serial.println("  Tira de LEDs: 83 LEDs en GPIO 33 | Suavizado 60 FPS");
+    Serial.println("  4 Canales Simultáneos (GPIO 33, 32, 25, 26) - 83 LEDs c/u");
     Serial.println("=======================================================\n");
 
-    // Crear Mutex FreeRTOS para sincronización limpia entre núcleos
     g_dataMutex = xSemaphoreCreateMutex();
 
-    // Inicializar FastLED en el sistema principal
-    FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(g_leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+    // Registrar los 4 canales independientes de 83 LEDs cada uno
+    FastLED.addLeds<LED_TYPE, LED_PIN_1, COLOR_ORDER>(g_leds33, NUM_LEDS).setCorrection(TypicalLEDStrip);
+    FastLED.addLeds<LED_TYPE, LED_PIN_2, COLOR_ORDER>(g_leds32, NUM_LEDS).setCorrection(TypicalLEDStrip);
+    FastLED.addLeds<LED_TYPE, LED_PIN_3, COLOR_ORDER>(g_leds25, NUM_LEDS).setCorrection(TypicalLEDStrip);
+    FastLED.addLeds<LED_TYPE, LED_PIN_4, COLOR_ORDER>(g_leds26, NUM_LEDS).setCorrection(TypicalLEDStrip);
+
     FastLED.setBrightness(DEFAULT_BRIGHTNESS);
-    FastLED.clear();
+    clear4Strips();
     FastLED.show();
 
-    // Inicializar Motor NimBLE Dual (Cliente + Servidor)
+    // Inicializar Motor NimBLE Dual
     NimBLEDevice::init("ESP32_OBD_ShiftLight");
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9); // Máxima potencia de transmisión BLE
+    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
-    // Configurar Servidor BLE para la Web App
+    // Servidor BLE
     NimBLEServer* pServer = NimBLEDevice::createServer();
     pServer->setCallbacks(new WebServerCallbacks());
     NimBLEService* pService = pServer->createService(ESP32_SERVICE_UUID);
@@ -235,38 +256,18 @@ void setup() {
     pAdvertising->addServiceUUID(ESP32_SERVICE_UUID);
     pAdvertising->start();
 
-    Serial.println("[System] Servidor BLE 'ESP32_OBD_ShiftLight' activo para la Web.");
+    Serial.println("[System] Servidor BLE activo en 4 salidas de tiras LED.");
 
-    // Lector / Cliente BLE (ELM327)
+    // Cliente BLE (ELM327)
     pElmClient = NimBLEDevice::createClient();
     pElmClient->setClientCallbacks(new ElmClientCallbacks(), false);
 
-    // Lanzar Tareas Dual-Core
-    // Tarea BLE en Core 0
-    xTaskCreatePinnedToCore(
-        taskBLE,
-        "TaskBLE",
-        8192,
-        NULL,
-        2,
-        NULL,
-        CORE_BLE
-    );
-
-    // Tarea LED en Core 1 (Renderizado prioritario 60FPS)
-    xTaskCreatePinnedToCore(
-        taskLED,
-        "TaskLED",
-        6144,
-        NULL,
-        3,
-        NULL,
-        CORE_LED
-    );
+    // Tareas Dual-Core
+    xTaskCreatePinnedToCore(taskBLE, "TaskBLE", 8192, NULL, 2, NULL, CORE_BLE);
+    xTaskCreatePinnedToCore(taskLED, "TaskLED", 6144, NULL, 3, NULL, CORE_LED);
 }
 
 void loop() {
-    // El bucle principal se delega totalmente a las tareas de FreeRTOS
     vTaskDelay(pdMS_TO_TICKS(1000));
 }
 
@@ -283,13 +284,13 @@ void taskBLE(void* pvParameters) {
         switch (g_elmState) {
             case BLE_STATE_SCANNING: {
                 if (g_targetElmDevice == nullptr) {
-                    Serial.println("[BLE Task] Iniciando escaneo de adaptadores ELM327 BLE...");
+                    Serial.println("[BLE Task] Escaneando adaptadores ELM327 BLE...");
                     NimBLEScan* pScan = NimBLEDevice::getScan();
                     pScan->setAdvertisedDeviceCallbacks(new ElmScanCallbacks());
                     pScan->setInterval(45);
                     pScan->setWindow(15);
                     pScan->setActiveScan(true);
-                    pScan->start(4, false); // Escaneo de 4 segundos
+                    pScan->start(4, false);
                 } else {
                     g_elmState = BLE_STATE_CONNECTING;
                 }
@@ -298,12 +299,12 @@ void taskBLE(void* pvParameters) {
 
             case BLE_STATE_CONNECTING: {
                 if (g_targetElmDevice != nullptr) {
-                    Serial.println("[BLE Task] Intentando conectar con ELM327...");
+                    Serial.println("[BLE Task] Conectando a ELM327...");
                     if (connectToElmServer(g_targetElmDevice)) {
                         g_elmState = BLE_STATE_INIT_ELM;
                         stateTimer = now;
                     } else {
-                        Serial.println("[BLE Task] Fallo al conectar. Reintentando escaneo...");
+                        Serial.println("[BLE Task] Conexión fallida. Reintentando escaneo...");
                         g_targetElmDevice = nullptr;
                         g_elmState = BLE_STATE_RETRY_WAIT;
                         stateTimer = now;
@@ -313,8 +314,8 @@ void taskBLE(void* pvParameters) {
             }
 
             case BLE_STATE_INIT_ELM: {
-                if (now - stateTimer > 300) { // Enviar órdenes iniciales AT
-                    Serial.println("[BLE Task] Inicializando comandos AT ELM327...");
+                if (now - stateTimer > 300) {
+                    Serial.println("[BLE Task] Inicializando AT ELM327...");
                     if (pElmTxChar) {
                         pElmTxChar->writeValue("AT Z\r", false);
                         vTaskDelay(pdMS_TO_TICKS(300));
@@ -334,7 +335,6 @@ void taskBLE(void* pvParameters) {
             }
 
             case BLE_STATE_POLLING: {
-                // Sondeo continuo de RPM (01 0C\r) cada 70ms
                 if (now - lastPollTime >= 70) {
                     lastPollTime = now;
                     if (pElmTxChar && pElmClient && pElmClient->isConnected()) {
@@ -342,9 +342,8 @@ void taskBLE(void* pvParameters) {
                     }
                 }
 
-                // Detección de desconexión por Timeout (4 segundos sin respuesta)
                 if (now - g_lastElmDataTime > 4000) {
-                    Serial.println("[BLE Task] Timeout de datos ELM327. Reiniciando conexión...");
+                    Serial.println("[BLE Task] Timeout ELM327. Reiniciando...");
                     if (pElmClient && pElmClient->isConnected()) {
                         pElmClient->disconnect();
                     }
@@ -355,7 +354,7 @@ void taskBLE(void* pvParameters) {
             }
 
             case BLE_STATE_RETRY_WAIT: {
-                if (now - stateTimer >= 2000) { // Esperar 2s antes de reesccanear
+                if (now - stateTimer >= 2000) {
                     g_targetElmDevice = nullptr;
                     g_elmState = BLE_STATE_SCANNING;
                 }
@@ -363,27 +362,22 @@ void taskBLE(void* pvParameters) {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(20)); // Ceder tiempo de CPU en Core 0
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
-// Conectar con Servidor BLE ELM327
 bool connectToElmServer(NimBLEAdvertisedDevice* advertisedDevice) {
-    if (!pElmClient->connect(advertisedDevice)) {
-        return false;
-    }
+    if (!pElmClient->connect(advertisedDevice)) return false;
 
-    // Buscar Servicios
     for (const char* uuidStr : ELM_SERVICES) {
         NimBLERemoteService* pService = pElmClient->getService(uuidStr);
         if (pService != nullptr) {
-            // Resolver características de Notificación y Escritura
             pElmRxChar = pService->getCharacteristic(NimBLEUUID("0000fff1-0000-1000-8000-00805f9b34fb"));
             if (!pElmRxChar) pElmRxChar = pService->getCharacteristic(NimBLEUUID("0000ffe1-0000-1000-8000-00805f9b34fb"));
             if (!pElmRxChar) pElmRxChar = pService->getCharacteristic(NimBLEUUID("00002af0-0000-1000-8000-00805f9b34fb"));
 
             pElmTxChar = pService->getCharacteristic(NimBLEUUID("0000fff2-0000-1000-8000-00805f9b34fb"));
-            if (!pElmTxChar) pElmTxChar = pElmRxChar; // Fallback si es característica bidireccional
+            if (!pElmTxChar) pElmTxChar = pElmRxChar;
 
             if (pElmRxChar && pElmRxChar->canNotify()) {
                 pElmRxChar->subscribe(true, elmNotifyCallback);
@@ -394,7 +388,6 @@ bool connectToElmServer(NimBLEAdvertisedDevice* advertisedDevice) {
     return false;
 }
 
-// Parseador de respuestas OBD-II (01 0C)
 void parseOBDResponse(const char* data) {
     if (strstr(data, "41 0C") != nullptr || strstr(data, "410C") != nullptr) {
         const char* p = strstr(data, "0C");
@@ -407,7 +400,6 @@ void parseOBDResponse(const char* data) {
                 xSemaphoreTake(g_dataMutex, portMAX_DELAY);
                 g_targetRPM = rpm;
                 
-                // Notificar valor de RPM a la Web si está conectada
                 if (g_webConnected && pCharRPM) {
                     uint8_t rpmBytes[2] = { (uint8_t)(rpm >> 8), (uint8_t)(rpm & 0xFF) };
                     pCharRPM->setValue(rpmBytes, 2);
@@ -420,17 +412,16 @@ void parseOBDResponse(const char* data) {
 }
 
 // ==========================================
-// TAREA CORE 1: RENDERIZADOR FASTLED ULTRA-FLUIDO (60 FPS)
+// TAREA CORE 1: RENDERIZADOR FASTLED (60 FPS EN 4 CANALES)
 // ==========================================
 void taskLED(void* pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(16); // ~60 FPS (16.6ms)
+    const TickType_t xFrequency = pdMS_TO_TICKS(16); // ~60 FPS
 
     float smoothedRPM = 0.0f;
     uint8_t welcomeStep = 0;
 
     for (;;) {
-        // Leer estado compartido bajo Mutex
         uint16_t targetRPM;
         LedMode mode;
         CRGB customColor;
@@ -443,12 +434,10 @@ void taskLED(void* pvParameters) {
         brightness = g_brightness;
         xSemaphoreGive(g_dataMutex);
 
-        // Aplicar filtro exponencial suavizado para fluidez extrema
         smoothedRPM += ((float)targetRPM - smoothedRPM) * 0.12f;
 
         FastLED.setBrightness(brightness);
 
-        // Renderizar según Modo
         switch (mode) {
             case MODE_WELCOME: {
                 renderWelcomeAnimation(welcomeStep);
@@ -456,7 +445,7 @@ void taskLED(void* pvParameters) {
                 if (welcomeStep >= (NUM_LEDS / 2) + 1) {
                     welcomeStep = 0;
                     xSemaphoreTake(g_dataMutex, portMAX_DELAY);
-                    g_currentMode = MODE_RPM_SHIFTLIGHT; // Transición automática al tacómetro
+                    g_currentMode = MODE_RPM_SHIFTLIGHT;
                     xSemaphoreGive(g_dataMutex);
                 }
                 break;
@@ -484,54 +473,51 @@ void taskLED(void* pvParameters) {
 
             case MODE_OFF:
             default:
-                FastLED.clear();
+                clear4Strips();
                 break;
         }
 
         FastLED.show();
-        vTaskDelayUntil(&xLastWakeTime, xFrequency); // Mantener 60 FPS exactos
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
 // ==========================================
-// ANIMACIONES Y RENDERIZADORES DE ILUMINACIÓN
+// RENDERIZADORES REPLICADOS EN 4 CANALES
 // ==========================================
 
-// ANIMACIÓN DE BIENVENIDA: Llenado desde los dos bordes hacia el centro (Edge-to-Center)
+// ANIMACIÓN DE BIENVENIDA: Edge-to-Center en 4 tiras
 void renderWelcomeAnimation(uint8_t step) {
-    FastLED.clear();
+    clear4Strips();
     int half = NUM_LEDS / 2;
-    CRGB welcomeColor = CRGB(0, 220, 255); // Cian brillante de bienvenida
+    CRGB welcomeColor = CRGB(0, 220, 255);
 
     for (int i = 0; i <= step && i <= half; i++) {
         int leftIdx = i;
         int rightIdx = NUM_LEDS - 1 - i;
 
-        if (leftIdx >= 0 && leftIdx < NUM_LEDS) g_leds[leftIdx] = welcomeColor;
-        if (rightIdx >= 0 && rightIdx < NUM_LEDS) g_leds[rightIdx] = welcomeColor;
+        setPixel4Strips(leftIdx, welcomeColor);
+        setPixel4Strips(rightIdx, welcomeColor);
     }
 }
 
-// RENDIMIENTO TACÓMETRO RPM OPEL CORSA DIESEL (83 LEDs Sub-pixel Liquid)
+// TACÓMETRO RPM OPEL CORSA DIESEL (Sub-pixel Liquid en 4 tiras)
 void renderRpmShiftLight(float rpm) {
-    FastLED.clear();
+    clear4Strips();
 
-    // 1. Estado Reposo / Motor Apagado (< 750 RPM)
     if (rpm < RPM_IDLE) {
-        g_leds[0] = CRGB(0, 40, 80); // Luz guía mínima en reposo
+        setPixel4Strips(0, CRGB(0, 40, 80));
         return;
     }
 
-    // 2. Estado Aviso de Corte / Shift Light Warning (> 4300 RPM)
     if (rpm >= RPM_REDLINE) {
         static bool flashToggle = false;
         flashToggle = !flashToggle;
         CRGB alertColor = flashToggle ? CRGB::Red : CRGB::White;
-        for (int i = 0; i < NUM_LEDS; i++) g_leds[i] = alertColor;
+        for (int i = 0; i < NUM_LEDS; i++) setPixel4Strips(i, alertColor);
         return;
     }
 
-    // 3. Mapeo Progresivo Fluido (800 -> 4300 RPM en 83 LEDs)
     float pct = (rpm - (float)RPM_IDLE) / ((float)RPM_REDLINE - (float)RPM_IDLE);
     pct = constrain(pct, 0.0f, 1.0f);
 
@@ -541,52 +527,46 @@ void renderRpmShiftLight(float rpm) {
 
     for (int i = 0; i < NUM_LEDS; i++) {
         if (i < fullLeds || (i == fullLeds && fractionalPart > 0.05f)) {
-            // Calcular color dinámico según la posición relativa del LED
             float ledPct = (float)i / (float)NUM_LEDS;
             CRGB color;
 
             if (ledPct < 0.35f) {
-                // Zona 1: Eco / Cruceros (Cian -> Verde)
                 color = blend(CRGB(0, 180, 255), CRGB(0, 255, 60), (uint8_t)(ledPct * (255.0f / 0.35f)));
             } else if (ledPct < 0.75f) {
-                // Zona 2: Par Motor / Aceleración (Verde -> Amarillo / Naranja)
                 color = blend(CRGB(0, 255, 60), CRGB(255, 140, 0), (uint8_t)((ledPct - 0.35f) * (255.0f / 0.40f)));
             } else {
-                // Zona 3: Máxima Entrega (Naranja -> Rojo Intenso)
                 color = blend(CRGB(255, 140, 0), CRGB(255, 0, 0), (uint8_t)((ledPct - 0.75f) * (255.0f / 0.25f)));
             }
 
-            // Aplicar brillo fraccional al último LED para lograr movimiento líquido sub-pixel
             if (i == fullLeds) {
                 color.nscale8_video((uint8_t)(fractionalPart * 255.0f));
             }
 
-            g_leds[i] = color;
+            setPixel4Strips(i, color);
         }
     }
 }
 
-// COLOR FIJO
 void renderStaticColor(CRGB color) {
-    for (int i = 0; i < NUM_LEDS; i++) g_leds[i] = color;
+    for (int i = 0; i < NUM_LEDS; i++) setPixel4Strips(i, color);
 }
 
-// ARCOÍRIS FLUIDO
 void renderRainbow() {
     static uint8_t hue = 0;
     hue += 1;
-    fill_rainbow(g_leds, NUM_LEDS, hue, 3);
+    for (int i = 0; i < NUM_LEDS; i++) {
+        CRGB col = CHSV(hue + (i * 3), 255, 255);
+        setPixel4Strips(i, col);
+    }
 }
 
-// RESPIRACIÓN / PULSACIÓN
 void renderBreathing(CRGB color) {
     uint8_t val = beatsin8(14, 30, 255);
     CRGB col = color;
     col.nscale8_video(val);
-    for (int i = 0; i < NUM_LEDS; i++) g_leds[i] = col;
+    for (int i = 0; i < NUM_LEDS; i++) setPixel4Strips(i, col);
 }
 
-// ESTROBOSCÓPICO
 void renderStrobe() {
     static uint32_t lastStrobe = 0;
     static bool toggle = false;
@@ -595,5 +575,5 @@ void renderStrobe() {
         toggle = !toggle;
     }
     CRGB col = toggle ? CRGB::White : CRGB::Black;
-    for (int i = 0; i < NUM_LEDS; i++) g_leds[i] = col;
+    for (int i = 0; i < NUM_LEDS; i++) setPixel4Strips(i, col);
 }
