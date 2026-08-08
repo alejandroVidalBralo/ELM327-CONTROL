@@ -102,7 +102,7 @@ void elmNotifyCallback(NimBLERemoteCharacteristic* pChar, uint8_t* pData, size_t
 }
 
 // Callbacks de escaneo BLE
-class ElmScanCallbacks : public NimBLEScanCallbacks {
+class ElmScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* advertisedDevice) override {
         if (g_targetElmDevice != nullptr) return;
 
@@ -285,7 +285,7 @@ void taskBLE(void* pvParameters) {
                 if (g_targetElmDevice == nullptr) {
                     Serial.println("[BLE Task] Iniciando escaneo de adaptadores ELM327 BLE...");
                     NimBLEScan* pScan = NimBLEDevice::getScan();
-                    pScan->setScanCallbacks(new ElmScanCallbacks());
+                    pScan->setAdvertisedDeviceCallbacks(new ElmScanCallbacks());
                     pScan->setInterval(45);
                     pScan->setWindow(15);
                     pScan->setActiveScan(true);
@@ -375,7 +375,7 @@ bool connectToElmServer(NimBLEAdvertisedDevice* advertisedDevice) {
 
     // Buscar Servicios
     for (const char* uuidStr : ELM_SERVICES) {
-        NimBLERecordService* pService = pElmClient->getService(uuidStr);
+        NimBLERemoteService* pService = pElmClient->getService(uuidStr);
         if (pService != nullptr) {
             // Resolver características de Notificación y Escritura
             pElmRxChar = pService->getCharacteristic(NimBLEUUID("0000fff1-0000-1000-8000-00805f9b34fb"));
