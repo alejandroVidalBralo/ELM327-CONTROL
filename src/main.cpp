@@ -1,10 +1,10 @@
 /**
  * ESP32 ELM327 Control Center & Ambient Footwell LED System (4 Canales Bajo Asientos)
  * 
- * Sistema de Depuración Serie Completo:
- * - Acumulador de fragmentos BLE con delimitador '\r' y '>'.
- * - Parseador OBD-II ultra-robusto (soporta formatos con y sin espacios, cabeceras CAN).
- * - Monitor Serie detallado a 115200 baudios.
+ * Corrección de Estabilidad BLE & Control de Flujo:
+ * 1. Eliminado 'AT Z' del bucle de reconexión (evita el reinicio del microprocesador del dongle ELM327).
+ * 2. Control de flujo por respuesta (no se satura el buffer de notificaciones).
+ * 3. Reseteo automático de g_targetRPM a 0 en caso de desconexión o timeout para evitar colores "atascados".
  */
 
 #include <Arduino.h>
@@ -26,6 +26,7 @@ static bool     g_webConnected = false;
 
 // Acumulador de fragmentos BLE
 static String   g_bleRxAccumulator = "";
+static bool     g_waitingResponse = false;
 
 // Buffers para los 4 canales de salida independientes (83 LEDs por tira)
 static CRGB g_leds33[NUM_LEDS];
@@ -33,7 +34,6 @@ static CRGB g_leds32[NUM_LEDS];
 static CRGB g_leds25[NUM_LEDS];
 static CRGB g_leds26[NUM_LEDS];
 
-// Helper para pintar toda la iluminación bajo los asientos en los 4 canales
 inline void setAll4StripsColor(CRGB color) {
     for (int i = 0; i < NUM_LEDS; i++) {
         g_leds33[i] = color;
@@ -98,14 +98,16 @@ class ElmClientCallbacks : public NimBLEClientCallbacks {
     void onDisconnect(NimBLEClient* pClient) override {
         xSemaphoreTake(g_dataMutex, portMAX_DELAY);
         g_elmConnected = false;
+        g_targetRPM = 0; // Reset a 0 para que no quede atascada la luz si cae la señal
         xSemaphoreGive(g_dataMutex);
 
         g_elmState = BLE_STATE_RETRY_WAIT;
-        Serial.println("[BLE Client] Desconectado del ELM327. Reintentando...");
+        g_waitingResponse = false;
+        Serial.println("[BLE Client] Desconectado del ELM327. Reseteando RPM a 0 y reintentando...");
     }
 };
 
-// Callback con acumulador de fragmentos BLE
+// Callback con acumulador de fragmentos BLE y liberación de flujo
 void elmNotifyCallback(NimBLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
     if (length == 0) return;
 
@@ -121,6 +123,7 @@ void elmNotifyCallback(NimBLERemoteCharacteristic* pChar, uint8_t* pData, size_t
                 }
                 g_bleRxAccumulator = "";
             }
+            g_waitingResponse = false; // Liberar bloqueo para enviar la siguiente consulta
         } else {
             g_bleRxAccumulator += c;
         }
@@ -221,7 +224,7 @@ void setup() {
 
     Serial.println("\n=======================================================");
     Serial.println("  ESP32 ILUMINACIÓN AMBIENTAL DE SUELO (BAJO ASIENTOS)");
-    Serial.println("  SISTEMA DE DEBURACIÓN SERIE ACTIVO (115200 BAUDIOS)");
+    Serial.println("  SISTEMA OPTIMIZADO: SIN AT Z + CONTROL DE FLUJO BLE");
     Serial.println("  4 Canales (GPIO 33, 32, 25, 26) - 83 LEDs c/u");
     Serial.println("=======================================================\n");
 
@@ -312,19 +315,16 @@ void taskBLE(void* pvParameters) {
             }
 
             case BLE_STATE_INIT_ELM: {
-                if (now - stateTimer > 300) {
+                if (now - stateTimer > 200) {
                     if (pElmTxChar) {
-                        Serial.println("[BLE Task] Enviando orden AT Z...");
-                        pElmTxChar->writeValue("AT Z\r", false);
-                        vTaskDelay(pdMS_TO_TICKS(300));
-
-                        Serial.println("[BLE Task] Enviando orden AT E0...");
+                        // NO enviamos AT Z para evitar reiniciar el dongle ELM327
+                        Serial.println("[BLE Task] Configurando AT E0 (Echo Off)...");
                         pElmTxChar->writeValue("AT E0\r", false);
-                        vTaskDelay(pdMS_TO_TICKS(150));
+                        vTaskDelay(pdMS_TO_TICKS(120));
 
-                        Serial.println("[BLE Task] Enviando orden AT SP 0...");
+                        Serial.println("[BLE Task] Configurando AT SP 0 (Auto Protocol)...");
                         pElmTxChar->writeValue("AT SP 0\r", false);
-                        vTaskDelay(pdMS_TO_TICKS(150));
+                        vTaskDelay(pdMS_TO_TICKS(120));
                     }
                     xSemaphoreTake(g_dataMutex, portMAX_DELAY);
                     g_elmConnected = true;
@@ -332,20 +332,29 @@ void taskBLE(void* pvParameters) {
 
                     g_elmState = BLE_STATE_POLLING;
                     g_lastElmDataTime = now;
+                    g_waitingResponse = false;
                 }
                 break;
             }
 
             case BLE_STATE_POLLING: {
-                if (now - lastPollTime >= 70) {
+                // Control de flujo: solo consulta si no hay respuesta pendiente o si han pasado >250ms
+                if (!g_waitingResponse || (now - lastPollTime >= 250)) {
                     lastPollTime = now;
+                    g_waitingResponse = true;
                     if (pElmTxChar && pElmClient && pElmClient->isConnected()) {
                         pElmTxChar->writeValue("01 0C\r", false);
                     }
                 }
 
+                // Detección de Timeout (4 segundos sin ninguna respuesta)
                 if (now - g_lastElmDataTime > 4000) {
-                    Serial.println("[BLE Task WARNING] Timeout de datos ELM327 (4s sin recibir respuesta). Reiniciando...");
+                    Serial.println("[BLE Task WARNING] Timeout de datos ELM327 (4s sin responder). Desconectando...");
+                    xSemaphoreTake(g_dataMutex, portMAX_DELAY);
+                    g_elmConnected = false;
+                    g_targetRPM = 0; // Decaer a 0 RPM
+                    xSemaphoreGive(g_dataMutex);
+
                     if (pElmClient && pElmClient->isConnected()) {
                         pElmClient->disconnect();
                     }
@@ -390,16 +399,15 @@ bool connectToElmServer(NimBLEAdvertisedDevice* advertisedDevice) {
     return false;
 }
 
-// PARSEADOR OBD-II ULTRA-ROBUSTO CON DEBUG SERIE DETALLADO
+// PARSEADOR OBD-II CON DEBUG SERIE DETALLADO
 void parseOBDResponse(const char* rawData) {
     String data = String(rawData);
     data.toUpperCase();
     String cleanData = data;
-    cleanData.replace(" ", ""); // Eliminar espacios para parsear homogéneamente (ej: "410C1AF0")
+    cleanData.replace(" ", "");
 
     Serial.printf("[OBD RX RAW] \"%s\"\n", rawData);
 
-    // Buscar "410C" (Respuesta al PID 01 0C)
     int idx = cleanData.indexOf("410C");
     if (idx != -1 && (idx + 8 <= cleanData.length())) {
         String hexA = cleanData.substring(idx + 4, idx + 6);
@@ -413,7 +421,7 @@ void parseOBDResponse(const char* rawData) {
         if (*endA == '\0' && *endB == '\0') {
             uint16_t rpm = (uint16_t)(((a * 256) + b) / 4);
 
-            if (rpm <= 6500) { // Filtro de cordura
+            if (rpm <= 6500) {
                 xSemaphoreTake(g_dataMutex, portMAX_DELAY);
                 g_targetRPM = rpm;
 
@@ -424,13 +432,13 @@ void parseOBDResponse(const char* rawData) {
                 }
                 xSemaphoreGive(g_dataMutex);
 
-                Serial.printf("  --> [OBD PARSE OK] Hex: %s %s | RPM Extraídas: %u RPM (Target RPM Actualizado)\n", 
+                Serial.printf("  --> [OBD PARSE OK] Hex: %s %s | RPM Extraídas: %u RPM\n", 
                               hexA.c_str(), hexB.c_str(), rpm);
             } else {
                 Serial.printf("  --> [OBD PARSE WARN] RPM fuera de rango (>6500): %u RPM (Ignorado).\n", rpm);
             }
         } else {
-            Serial.printf("  --> [OBD PARSE ERR] Fallo conversion hex '%s' '%s'\n", hexA.c_str(), hexB.c_str());
+            Serial.printf("  --> [OBD PARSE ERR] Fallo conversión hex '%s' '%s'\n", hexA.c_str(), hexB.c_str());
         }
     } else {
         if (cleanData.indexOf("SEARCHING") != -1) {
@@ -464,7 +472,7 @@ void taskLED(void* pvParameters) {
         brightness = g_brightness;
         xSemaphoreGive(g_dataMutex);
 
-        // Filtro suave para transiciones ambientales de fluido
+        // Decaimiento/Suavizado exponencial
         smoothedRPM += ((float)targetRPM - smoothedRPM) * 0.10f;
 
         switch (mode) {
@@ -540,7 +548,6 @@ void renderWelcomeAnimation(uint8_t step) {
     }
 }
 
-// MODO AMBIENTAL BAJO ASIENTOS CON MONITOREO DE DEPURAION EN SERIE
 void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness, uint16_t targetRPM) {
     float pct = 0.0f;
     uint8_t currentBrightness = baseBrightness;
@@ -553,10 +560,12 @@ void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness, uint16_t target
     }
     // 2. Corte (> 4300 RPM)
     else if (rpm >= RPM_REDLINE) {
+        FastLED.setBrightness(baseBrightness);
         static bool flashToggle = false;
         flashToggle = !flashToggle;
         ambientColor = flashToggle ? CRGB::Red : CRGB::White;
-        currentBrightness = baseBrightness;
+        setAll4StripsColor(ambientColor);
+        return;
     }
     // 3. Rango Normal RPM (800 -> 4300 RPM)
     else {
@@ -581,7 +590,6 @@ void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness, uint16_t target
     FastLED.setBrightness(currentBrightness);
     setAll4StripsColor(ambientColor);
 
-    // Monitor de depuración por Serie cada 500ms
     static uint32_t lastDbgTime = 0;
     if (millis() - lastDbgTime >= 500) {
         lastDbgTime = millis();
