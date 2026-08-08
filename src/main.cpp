@@ -1,9 +1,10 @@
 /**
  * ESP32 ELM327 Control Center & Ambient Footwell LED System (4 Canales Bajo Asientos)
  * 
- * Iluminación Ambiental de Suelo / Bajo Asientos:
- * - Toda la tira (332 LEDs en 4 canales GPIO 33, 32, 25, 26) se ilumina completa.
- * - Transición suavizada 60 FPS de COLOR e INTENSIDAD/BRILLO en función de las RPM del Corsa Diésel.
+ * Sistema de Depuración Serie Completo:
+ * - Acumulador de fragmentos BLE con delimitador '\r' y '>'.
+ * - Parseador OBD-II ultra-robusto (soporta formatos con y sin espacios, cabeceras CAN).
+ * - Monitor Serie detallado a 115200 baudios.
  */
 
 #include <Arduino.h>
@@ -22,6 +23,9 @@ static CRGB     g_customColor = CRGB(0, 150, 255);
 static uint8_t  g_brightness = DEFAULT_BRIGHTNESS;
 static bool     g_elmConnected = false;
 static bool     g_webConnected = false;
+
+// Acumulador de fragmentos BLE
+static String   g_bleRxAccumulator = "";
 
 // Buffers para los 4 canales de salida independientes (83 LEDs por tira)
 static CRGB g_leds33[NUM_LEDS];
@@ -74,13 +78,13 @@ void taskBLE(void* pvParameters);
 void taskLED(void* pvParameters);
 
 void renderWelcomeAnimation(uint8_t step);
-void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness);
+void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness, uint16_t targetRPM);
 void renderStaticColor(CRGB color);
 void renderRainbow();
 void renderBreathing(CRGB color);
 void renderStrobe();
 
-void parseOBDResponse(const char* data);
+void parseOBDResponse(const char* rawData);
 bool connectToElmServer(NimBLEAdvertisedDevice* advertisedDevice);
 
 // ==========================================
@@ -101,16 +105,26 @@ class ElmClientCallbacks : public NimBLEClientCallbacks {
     }
 };
 
+// Callback con acumulador de fragmentos BLE
 void elmNotifyCallback(NimBLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
     if (length == 0) return;
-    
-    char buffer[128];
-    size_t copyLen = length < 127 ? length : 127;
-    memcpy(buffer, pData, copyLen);
-    buffer[copyLen] = '\0';
 
     g_lastElmDataTime = millis();
-    parseOBDResponse(buffer);
+
+    for (size_t i = 0; i < length; i++) {
+        char c = (char)pData[i];
+        if (c == '>' || c == '\r' || c == '\n') {
+            if (g_bleRxAccumulator.length() > 0) {
+                g_bleRxAccumulator.trim();
+                if (g_bleRxAccumulator.length() > 0) {
+                    parseOBDResponse(g_bleRxAccumulator.c_str());
+                }
+                g_bleRxAccumulator = "";
+            }
+        } else {
+            g_bleRxAccumulator += c;
+        }
+    }
 }
 
 class ElmScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
@@ -147,7 +161,7 @@ class WebServerCallbacks : public NimBLEServerCallbacks {
         xSemaphoreTake(g_dataMutex, portMAX_DELAY);
         g_webConnected = true;
         xSemaphoreGive(g_dataMutex);
-        Serial.println("[BLE Server] Navegador Web conectado.");
+        Serial.println("[BLE Server] Navegador Web conectado a la app.");
     }
 
     void onDisconnect(NimBLEServer* pServer) override {
@@ -207,8 +221,8 @@ void setup() {
 
     Serial.println("\n=======================================================");
     Serial.println("  ESP32 ILUMINACIÓN AMBIENTAL DE SUELO (BAJO ASIENTOS)");
+    Serial.println("  SISTEMA DE DEBURACIÓN SERIE ACTIVO (115200 BAUDIOS)");
     Serial.println("  4 Canales (GPIO 33, 32, 25, 26) - 83 LEDs c/u");
-    Serial.println("  Transición de Color e Intensidad por RPM (Corsa Diésel)");
     Serial.println("=======================================================\n");
 
     g_dataMutex = xSemaphoreCreateMutex();
@@ -300,10 +314,15 @@ void taskBLE(void* pvParameters) {
             case BLE_STATE_INIT_ELM: {
                 if (now - stateTimer > 300) {
                     if (pElmTxChar) {
+                        Serial.println("[BLE Task] Enviando orden AT Z...");
                         pElmTxChar->writeValue("AT Z\r", false);
                         vTaskDelay(pdMS_TO_TICKS(300));
+
+                        Serial.println("[BLE Task] Enviando orden AT E0...");
                         pElmTxChar->writeValue("AT E0\r", false);
                         vTaskDelay(pdMS_TO_TICKS(150));
+
+                        Serial.println("[BLE Task] Enviando orden AT SP 0...");
                         pElmTxChar->writeValue("AT SP 0\r", false);
                         vTaskDelay(pdMS_TO_TICKS(150));
                     }
@@ -326,6 +345,7 @@ void taskBLE(void* pvParameters) {
                 }
 
                 if (now - g_lastElmDataTime > 4000) {
+                    Serial.println("[BLE Task WARNING] Timeout de datos ELM327 (4s sin recibir respuesta). Reiniciando...");
                     if (pElmClient && pElmClient->isConnected()) {
                         pElmClient->disconnect();
                     }
@@ -370,25 +390,53 @@ bool connectToElmServer(NimBLEAdvertisedDevice* advertisedDevice) {
     return false;
 }
 
-void parseOBDResponse(const char* data) {
-    if (strstr(data, "41 0C") != nullptr || strstr(data, "410C") != nullptr) {
-        const char* p = strstr(data, "0C");
-        if (!p) p = strstr(data, "0c");
-        if (p) {
-            int a = 0, b = 0;
-            if (sscanf(p, "%*s %x %x", &a, &b) >= 2) {
-                uint16_t rpm = (uint16_t)(((a * 256) + b) / 4);
-                
+// PARSEADOR OBD-II ULTRA-ROBUSTO CON DEBUG SERIE DETALLADO
+void parseOBDResponse(const char* rawData) {
+    String data = String(rawData);
+    data.toUpperCase();
+    String cleanData = data;
+    cleanData.replace(" ", ""); // Eliminar espacios para parsear homogéneamente (ej: "410C1AF0")
+
+    Serial.printf("[OBD RX RAW] \"%s\"\n", rawData);
+
+    // Buscar "410C" (Respuesta al PID 01 0C)
+    int idx = cleanData.indexOf("410C");
+    if (idx != -1 && (idx + 8 <= cleanData.length())) {
+        String hexA = cleanData.substring(idx + 4, idx + 6);
+        String hexB = cleanData.substring(idx + 6, idx + 8);
+
+        char* endA;
+        char* endB;
+        long a = strtol(hexA.c_str(), &endA, 16);
+        long b = strtol(hexB.c_str(), &endB, 16);
+
+        if (*endA == '\0' && *endB == '\0') {
+            uint16_t rpm = (uint16_t)(((a * 256) + b) / 4);
+
+            if (rpm <= 6500) { // Filtro de cordura
                 xSemaphoreTake(g_dataMutex, portMAX_DELAY);
                 g_targetRPM = rpm;
-                
+
                 if (g_webConnected && pCharRPM) {
                     uint8_t rpmBytes[2] = { (uint8_t)(rpm >> 8), (uint8_t)(rpm & 0xFF) };
                     pCharRPM->setValue(rpmBytes, 2);
                     pCharRPM->notify();
                 }
                 xSemaphoreGive(g_dataMutex);
+
+                Serial.printf("  --> [OBD PARSE OK] Hex: %s %s | RPM Extraídas: %u RPM (Target RPM Actualizado)\n", 
+                              hexA.c_str(), hexB.c_str(), rpm);
+            } else {
+                Serial.printf("  --> [OBD PARSE WARN] RPM fuera de rango (>6500): %u RPM (Ignorado).\n", rpm);
             }
+        } else {
+            Serial.printf("  --> [OBD PARSE ERR] Fallo conversion hex '%s' '%s'\n", hexA.c_str(), hexB.c_str());
+        }
+    } else {
+        if (cleanData.indexOf("SEARCHING") != -1) {
+            Serial.println("  --> [OBD BUS] Buscando protocolo CAN...");
+        } else if (cleanData.indexOf("NODATA") != -1) {
+            Serial.println("  --> [OBD BUS] NO DATA recibido de la ECU.");
         }
     }
 }
@@ -427,14 +475,14 @@ void taskLED(void* pvParameters) {
                 if (welcomeStep >= (NUM_LEDS / 2) + 1) {
                     welcomeStep = 0;
                     xSemaphoreTake(g_dataMutex, portMAX_DELAY);
-                    g_currentMode = MODE_RPM_SHIFTLIGHT; // Entrar a modo ambiental RPM
+                    g_currentMode = MODE_RPM_SHIFTLIGHT;
                     xSemaphoreGive(g_dataMutex);
                 }
                 break;
             }
 
             case MODE_RPM_SHIFTLIGHT:
-                renderFootwellRpmAmbient(smoothedRPM, brightness);
+                renderFootwellRpmAmbient(smoothedRPM, brightness, targetRPM);
                 break;
 
             case MODE_STATIC_COLOR:
@@ -472,7 +520,6 @@ void taskLED(void* pvParameters) {
 // RENDERIZADOR AMBIENTAL DE SUELO (BAJO ASIENTOS)
 // ==========================================
 
-// ANIMACIÓN DE BIENVENIDA: Llenado desde los bordes hacia el centro (Edge-to-Center)
 void renderWelcomeAnimation(uint8_t step) {
     clear4Strips();
     int half = NUM_LEDS / 2;
@@ -493,53 +540,54 @@ void renderWelcomeAnimation(uint8_t step) {
     }
 }
 
-// MODO AMBIENTAL BAJO ASIENTOS: Toda la tira encendida, cambiando COLOR e INTENSIDAD según RPM
-void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness) {
-    // 1. Estado Reposo / Motor Apagado / Ralentí (< 800 RPM)
-    if (rpm < RPM_IDLE) {
-        FastLED.setBrightness((uint8_t)(baseBrightness * 0.40f)); // Brillo tenue de ambiente
-        setAll4StripsColor(CRGB(0, 80, 200)); // Azul / Cian suave de cortesía
-        return;
-    }
+// MODO AMBIENTAL BAJO ASIENTOS CON MONITOREO DE DEPURAION EN SERIE
+void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness, uint16_t targetRPM) {
+    float pct = 0.0f;
+    uint8_t currentBrightness = baseBrightness;
+    CRGB ambientColor = CRGB::Black;
 
-    // 2. Estado Aviso Corte (> 4300 RPM)
-    if (rpm >= RPM_REDLINE) {
-        FastLED.setBrightness(baseBrightness);
+    // 1. Reposo / Ralentí (< 800 RPM)
+    if (rpm < RPM_IDLE) {
+        currentBrightness = (uint8_t)(baseBrightness * 0.40f);
+        ambientColor = CRGB(0, 80, 200); // Azul / Cian tenue
+    }
+    // 2. Corte (> 4300 RPM)
+    else if (rpm >= RPM_REDLINE) {
         static bool flashToggle = false;
         flashToggle = !flashToggle;
-        CRGB alertColor = flashToggle ? CRGB::Red : CRGB::White;
-        setAll4StripsColor(alertColor);
-        return;
+        ambientColor = flashToggle ? CRGB::Red : CRGB::White;
+        currentBrightness = baseBrightness;
+    }
+    // 3. Rango Normal RPM (800 -> 4300 RPM)
+    else {
+        pct = (rpm - (float)RPM_IDLE) / ((float)RPM_REDLINE - (float)RPM_IDLE);
+        pct = constrain(pct, 0.0f, 1.0f);
+
+        float dynamicBrightPct = 0.35f + (pct * 0.65f);
+        currentBrightness = (uint8_t)(baseBrightness * dynamicBrightPct);
+
+        if (pct < 0.35f) {
+            float subPct = pct / 0.35f;
+            ambientColor = blend(CRGB(0, 180, 255), CRGB(0, 255, 60), (uint8_t)(subPct * 255.0f));
+        } else if (pct < 0.75f) {
+            float subPct = (pct - 0.35f) / 0.40f;
+            ambientColor = blend(CRGB(0, 255, 60), CRGB(255, 120, 0), (uint8_t)(subPct * 255.0f));
+        } else {
+            float subPct = (pct - 0.75f) / 0.25f;
+            ambientColor = blend(CRGB(255, 120, 0), CRGB(255, 0, 0), (uint8_t)(subPct * 255.0f));
+        }
     }
 
-    // 3. Porcentaje de Aceleración / RPM (800 -> 4300 RPM)
-    float pct = (rpm - (float)RPM_IDLE) / ((float)RPM_REDLINE - (float)RPM_IDLE);
-    pct = constrain(pct, 0.0f, 1.0f);
-
-    // 4. Dinámica de Intensidad: El brillo aumenta gradualmente del 35% al 100% conforme aceleras
-    float dynamicBrightPct = 0.35f + (pct * 0.65f);
-    uint8_t currentBrightness = (uint8_t)(baseBrightness * dynamicBrightPct);
     FastLED.setBrightness(currentBrightness);
-
-    // 5. Dinámica de Color: Toda la tira cambia de color fluidamente
-    CRGB ambientColor;
-
-    if (pct < 0.35f) {
-        // Zona 1: Ralentí a Cruce (800 - 2000 RPM) -> Azul Cian ➔ Verde Esmeralda
-        float subPct = pct / 0.35f;
-        ambientColor = blend(CRGB(0, 180, 255), CRGB(0, 255, 60), (uint8_t)(subPct * 255.0f));
-    } else if (pct < 0.75f) {
-        // Zona 2: Zona de Par / Aceleración (2000 - 3500 RPM) -> Verde ➔ Naranja / Dorado
-        float subPct = (pct - 0.35f) / 0.40f;
-        ambientColor = blend(CRGB(0, 255, 60), CRGB(255, 120, 0), (uint8_t)(subPct * 255.0f));
-    } else {
-        // Zona 3: Zona Alta Potencia (3500 - 4300 RPM) -> Naranja ➔ Rojo Deporte
-        float subPct = (pct - 0.75f) / 0.25f;
-        ambientColor = blend(CRGB(255, 120, 0), CRGB(255, 0, 0), (uint8_t)(subPct * 255.0f));
-    }
-
-    // Aplicar el color a TODOS los LEDs de las 4 tiras
     setAll4StripsColor(ambientColor);
+
+    // Monitor de depuración por Serie cada 500ms
+    static uint32_t lastDbgTime = 0;
+    if (millis() - lastDbgTime >= 500) {
+        lastDbgTime = millis();
+        Serial.printf("[LED FOOTWELL DBG] Target: %u RPM | Smoothed: %.1f RPM | Pct: %.2f | Brightness: %u | Color: RGB(%u,%u,%u)\n",
+                      targetRPM, rpm, pct, currentBrightness, ambientColor.r, ambientColor.g, ambientColor.b);
+    }
 }
 
 void renderStaticColor(CRGB color) {
