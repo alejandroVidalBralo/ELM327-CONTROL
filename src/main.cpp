@@ -531,7 +531,8 @@ void taskLED(void* pvParameters) {
 void renderWelcomeAnimation(uint8_t step) {
     clear4Strips();
     int half = NUM_LEDS / 2;
-    CRGB welcomeColor = CRGB(0, 220, 255);
+    // Color idéntico al inicio del modo tacómetro en ralentí para cero saltos de color
+    CRGB welcomeColor = CRGB(0, 180, 255);
 
     for (int i = 0; i <= step && i <= half; i++) {
         int leftIdx = i;
@@ -550,13 +551,12 @@ void renderWelcomeAnimation(uint8_t step) {
 
 void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness, uint16_t targetRPM) {
     float pct = 0.0f;
-    uint8_t currentBrightness = baseBrightness;
+    uint8_t currentBrightness = baseBrightness; // Brillo siempre al tope (255)
     CRGB ambientColor = CRGB::Black;
 
-    // 1. Reposo / Ralentí (< 800 RPM)
+    // 1. Reposo / Ralentí (< 800 RPM) -> Mismo color exacto que el final de la bienvenida
     if (rpm < RPM_IDLE) {
-        currentBrightness = (uint8_t)(baseBrightness * 0.40f);
-        ambientColor = CRGB(0, 80, 200); // Azul / Cian tenue
+        ambientColor = CRGB(0, 180, 255); // Cian / Azul de inicio del tacómetro
     }
     // 2. Corte (> 4300 RPM)
     else if (rpm >= RPM_REDLINE) {
@@ -571,9 +571,6 @@ void renderFootwellRpmAmbient(float rpm, uint8_t baseBrightness, uint16_t target
     else {
         pct = (rpm - (float)RPM_IDLE) / ((float)RPM_REDLINE - (float)RPM_IDLE);
         pct = constrain(pct, 0.0f, 1.0f);
-
-        float dynamicBrightPct = 0.35f + (pct * 0.65f);
-        currentBrightness = (uint8_t)(baseBrightness * dynamicBrightPct);
 
         if (pct < 0.35f) {
             float subPct = pct / 0.35f;

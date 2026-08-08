@@ -14,7 +14,7 @@
 #define NUM_LEDS        83          // 83 LEDs por tira (4 tiras independientes = 332 LEDs en total)
 #define LED_TYPE        WS2812B
 #define COLOR_ORDER     GRB
-#define DEFAULT_BRIGHTNESS 60       // Brillo inicial (0 - 255)
+#define DEFAULT_BRIGHTNESS 255      // Brillo inicial al máximo (255)
 
 // ==========================================
 // MAPEO DE RPM PARA OPEL CORSA 2007 DIESEL (1.3/1.7 CDTI)
