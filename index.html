@@ -3,1570 +3,456 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ELM327 Control Center - OBD-II Terminal & Diagnostics</title>
-  <meta name="description" content="Herramienta de diagnóstico y terminal para adaptadores ELM327 BLE OBD-II.">
+  <title>ESP32 ShiftLight & ELM327 BLE Control</title>
   
-  <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
     :root {
-      --bg-main: #0b0f17;
-      --bg-card: #121824;
-      --bg-card-hover: #182030;
-      --border-color: #1e2638;
+      --bg: #090c10;
+      --panel-bg: #0d1117;
+      --border: #21262d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
       
-      --accent-cyan: #38bdf8;
-      --accent-blue: #2563eb;
-      --accent-green: #10b981;
-      --accent-yellow: #f59e0b;
-      --accent-red: #ef4444;
-      --accent-purple: #a855f7;
-
-      --text-main: #f1f5f9;
-      --text-muted: #94a3b8;
-      --text-sub: #64748b;
-
-      --term-bg: #030712;
-      --radius-sm: 6px;
-      --radius-md: 10px;
-      --radius-lg: 14px;
-
-      --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      --cyan: #38bdf8;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #bc8cff;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Inter', -apple-system, blinkmacsystemfont, sans-serif;
-      background-color: var(--bg-main);
-      color: var(--text-main);
+      font-family: 'Inter', -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      line-height: 1.5;
     }
 
-    /* Header & Navigation */
+    /* Top Bar */
     header {
-      background: var(--bg-card);
-      border-bottom: 1px solid var(--border-color);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      padding: 12px 24px;
-    }
-
-    .header-container {
-      max-width: 1200px;
-      margin: 0 auto;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 12px;
       flex-wrap: wrap;
-      gap: 16px;
     }
 
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .brand h1 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem;
+      font-weight: 600;
+      color: #f0f6fc;
     }
 
-    .brand-icon {
-      width: 34px;
-      height: 34px;
-      background: #1e293b;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--accent-cyan);
-    }
-
-    .brand-icon svg {
-      width: 18px;
-      height: 18px;
-    }
-
-    .brand-text h1 {
-      font-size: 1.05rem;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      color: var(--text-main);
-    }
-
-    .brand-text span {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      font-weight: 500;
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .status-badge {
+    .status-pill {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 5px 12px;
-      border-radius: 20px;
-      background: #0f172a;
-      border: 1px solid var(--border-color);
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 12px;
+      background: #161b22;
+      border: 1px solid var(--border);
       font-size: 0.78rem;
-      font-weight: 600;
     }
 
-    .status-dot {
+    .dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background-color: var(--accent-red);
-      transition: var(--transition);
+      background-color: var(--red);
     }
 
-    .status-badge.connected .status-dot {
-      background-color: var(--accent-green);
-      box-shadow: 0 0 8px var(--accent-green);
-    }
+    .status-pill.connected .dot { background-color: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-pill.connecting .dot { background-color: var(--yellow); }
 
-    .status-badge.demo .status-dot {
-      background-color: var(--accent-purple);
-    }
+    .actions { display: flex; gap: 8px; }
 
-    .status-badge.connecting .status-dot {
-      background-color: var(--accent-yellow);
-      animation: pulse 0.8s infinite alternate;
-    }
-
-    @keyframes pulse {
-      0% { opacity: 0.3; }
-      100% { opacity: 1; }
-    }
-
-    /* Buttons */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      padding: 8px 14px;
-      border-radius: var(--radius-sm);
-      font-size: 0.82rem;
+    button {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid var(--border);
+      padding: 7px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
       font-weight: 600;
-      border: 1px solid transparent;
       cursor: pointer;
-      transition: var(--transition);
-      user-select: none;
+      transition: background 0.15s;
     }
 
-    .btn-primary {
-      background: var(--accent-cyan);
-      color: #090d16;
-    }
+    button:hover { background: #30363d; }
+    button.primary { background: #1f6feb; color: #fff; border-color: #1f6feb; }
+    button.primary:hover { background: #388bfd; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    .btn-primary:hover {
-      background: #7dd3fc;
-    }
-
-    .btn-secondary {
-      background: #1e293b;
-      color: var(--text-main);
-      border-color: var(--border-color);
-    }
-
-    .btn-secondary:hover {
-      background: #334155;
-    }
-
-    .btn-danger {
-      background: #dc2626;
-      color: #fff;
-    }
-
-    .btn-danger:hover {
-      background: #ef4444;
-    }
-
-    .btn-demo {
-      background: rgba(168, 85, 247, 0.1);
-      color: var(--accent-purple);
-      border-color: rgba(168, 85, 247, 0.3);
-    }
-
-    .btn-demo:hover {
-      background: rgba(168, 85, 247, 0.2);
-    }
-
-    .btn:disabled {
-      opacity: 0.4;
-      cursor: not-allowed;
-    }
-
-    /* Tabs Navigation */
-    .tabs-nav {
-      max-width: 1200px;
-      margin: 16px auto 0;
-      padding: 0 24px;
-      display: flex;
-      gap: 4px;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    .tab-btn {
-      padding: 8px 16px;
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-      font-weight: 500;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: var(--transition);
-    }
-
-    .tab-btn:hover {
-      color: var(--text-main);
-    }
-
-    .tab-btn.active {
-      color: var(--accent-cyan);
-      border-bottom-color: var(--accent-cyan);
-      font-weight: 600;
-    }
-
-    /* Main Container */
+    /* Layout */
     main {
-      max-width: 1200px;
+      max-width: 1000px;
       width: 100%;
       margin: 0 auto;
-      padding: 20px 24px;
-      flex: 1;
-    }
-
-    .tab-content {
-      display: none;
-    }
-
-    .tab-content.active {
-      display: block;
-    }
-
-    /* Dashboard Layout */
-    .dashboard-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
       gap: 16px;
-      margin-bottom: 20px;
+      flex: 1;
     }
 
     .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
       padding: 16px;
     }
 
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-
     .card-title {
-      font-size: 0.72rem;
-      font-weight: 700;
-      color: var(--text-muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.05em;
+      margin-bottom: 12px;
     }
 
-    /* SVG Gauges */
-    .gauge-wrapper {
-      position: relative;
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
+    /* Grid for Modes */
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
     }
 
-    .gauge-svg {
-      width: 160px;
-      height: 100px;
-    }
-
-    .gauge-bg {
-      fill: none;
-      stroke: #1e293b;
-      stroke-width: 10;
-      stroke-linecap: round;
-    }
-
-    .gauge-fill {
-      fill: none;
-      stroke: var(--accent-cyan);
-      stroke-width: 10;
-      stroke-linecap: round;
-      stroke-dasharray: 220;
-      stroke-dashoffset: 220;
-      transition: stroke-dashoffset 0.25s ease-out;
-    }
-
-    .gauge-value-display {
-      margin-top: -26px;
+    .mode-btn {
+      padding: 10px;
       text-align: center;
-    }
-
-    .gauge-val {
-      font-size: 2rem;
-      font-weight: 700;
-      color: var(--text-main);
-      line-height: 1;
-      font-feature-settings: "tnum";
-    }
-
-    .gauge-unit {
-      font-size: 0.72rem;
-      color: var(--text-muted);
-      font-weight: 500;
-      margin-top: 2px;
-    }
-
-    /* Secondary Metric Cards */
-    .metric-value-row {
-      display: flex;
-      align-items: baseline;
-      gap: 6px;
-      margin-top: 6px;
-    }
-
-    .metric-val {
-      font-size: 2.1rem;
-      font-weight: 700;
-      color: var(--text-main);
-      font-feature-settings: "tnum";
-    }
-
-    .metric-unit {
-      font-size: 0.8rem;
-      color: var(--text-muted);
-      font-weight: 500;
-    }
-
-    .progress-bar-bg {
-      width: 100%;
-      height: 5px;
-      background: #1e293b;
-      border-radius: 3px;
-      margin-top: 12px;
-      overflow: hidden;
-    }
-
-    .progress-bar-fill {
-      height: 100%;
-      background: var(--accent-cyan);
-      width: 0%;
-      border-radius: 3px;
-      transition: width 0.3s ease;
-    }
-
-    /* Controls Bar */
-    .controls-bar {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 20px;
-    }
-
-    .control-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .control-label {
-      font-size: 0.8rem;
-      font-weight: 500;
-      color: var(--text-muted);
-    }
-
-    select, input[type="text"] {
-      background: var(--term-bg);
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
-      padding: 6px 10px;
-      border-radius: var(--radius-sm);
+      background: #161b22;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
       font-size: 0.82rem;
-      outline: none;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
     }
 
-    select:focus, input[type="text"]:focus {
-      border-color: var(--accent-cyan);
+    .mode-btn:hover {
+      border-color: var(--cyan);
+      color: #fff;
     }
 
-    /* DTC Section */
-    .dtc-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .dtc-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 14px;
-    }
-
-    .dtc-item {
-      background: #0d131f;
-      border: 1px solid var(--border-color);
-      border-left: 3px solid var(--accent-red);
-      border-radius: var(--radius-sm);
-      padding: 14px;
-    }
-
-    .dtc-code-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-
-    .dtc-code {
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 1rem;
-      font-weight: 700;
-      color: var(--accent-red);
-    }
-
-    .dtc-type-tag {
-      font-size: 0.7rem;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: rgba(239, 68, 68, 0.1);
-      color: #fca5a5;
+    .mode-btn.active {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: var(--cyan);
+      color: var(--cyan);
       font-weight: 600;
     }
 
-    .dtc-desc {
-      font-size: 0.85rem;
-      color: var(--text-main);
+    /* Controls Row */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
     }
 
-    .dtc-solution {
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 30px 16px;
-      color: var(--text-muted);
+    .control-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       font-size: 0.85rem;
     }
 
-    /* Terminal */
-    .terminal-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      padding: 14px;
+    input[type="color"] {
+      border: none;
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      cursor: pointer;
+      background: transparent;
+    }
+
+    input[type="range"] {
+      accent-color: var(--cyan);
+      cursor: pointer;
+    }
+
+    /* Live RPM Header Display */
+    .rpm-display-box {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+
+    .rpm-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--cyan);
+    }
+
+    /* Terminal Console */
+    .terminal-container {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
       display: flex;
       flex-direction: column;
-      height: 520px;
+      height: 340px;
+      overflow: hidden;
     }
 
-    .terminal-toolbar {
+    .console-header {
+      padding: 8px 12px;
+      background: #161b22;
+      border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      padding-bottom: 10px;
-      border-bottom: 1px solid var(--border-color);
-      margin-bottom: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
     }
 
-    .terminal-title {
+    .console {
+      flex: 1;
+      padding: 10px 12px;
+      background: var(--bg);
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.8rem;
-      color: var(--text-muted);
-    }
-
-    .terminal-console {
-      flex: 1;
-      background: var(--term-bg);
-      border: 1px solid #111827;
-      border-radius: var(--radius-sm);
-      padding: 12px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.82rem;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 4px;
-      margin-bottom: 10px;
     }
 
-    .log-line {
-      line-height: 1.35;
-      word-break: break-all;
-    }
-
-    .log-time {
-      color: var(--text-sub);
-      margin-right: 8px;
-      font-size: 0.75rem;
-    }
-
-    .log-tx { color: var(--accent-cyan); }
-    .log-rx { color: var(--accent-green); }
-    .log-sys { color: var(--accent-yellow); }
-    .log-err { color: var(--accent-red); }
-
-    .ascii-decode-tag {
-      color: var(--accent-purple);
-      font-size: 0.75rem;
-      margin-left: 6px;
-    }
-
-    .quick-macros {
-      display: flex;
-      gap: 4px;
-      overflow-x: auto;
-      padding-bottom: 6px;
-      margin-bottom: 6px;
-    }
-
-    .macro-btn {
-      padding: 3px 8px;
-      background: #1e293b;
-      border: 1px solid var(--border-color);
-      color: var(--text-muted);
-      border-radius: 4px;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.72rem;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    .macro-btn:hover {
-      color: var(--text-main);
-      border-color: #334155;
-    }
-
-    .terminal-input-group {
-      display: flex;
-      gap: 8px;
-    }
-
-    .terminal-input {
-      flex: 1;
-      font-family: 'JetBrains Mono', monospace;
-      text-transform: uppercase;
-    }
-
-    .decoder-tool-panel {
-      background: #0f172a;
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-sm);
-      padding: 8px 12px;
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .decoder-tool-panel input {
-      flex: 1;
-    }
-
-    /* Table */
-    .table-container {
-      overflow-x: auto;
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-      font-size: 0.84rem;
-    }
-
-    th {
-      background: #0f172a;
-      padding: 10px 14px;
-      color: var(--text-muted);
-      font-weight: 600;
-      border-bottom: 1px solid var(--border-color);
-      font-size: 0.72rem;
-      text-transform: uppercase;
-    }
-
-    td {
-      padding: 10px 14px;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    tr:last-child td { border-bottom: none; }
-
-    .pid-tag {
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--accent-cyan);
-    }
-
-    /* Modal */
-    .modal-overlay {
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(3, 7, 18, 0.75);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      opacity: 0;
-      pointer-events: none;
-      transition: var(--transition);
-    }
-
-    .modal-overlay.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .modal-box {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: var(--radius-md);
-      padding: 20px;
-      max-width: 420px;
-      width: 90%;
-    }
-
-    .modal-title {
-      font-size: 1rem;
-      font-weight: 600;
-      color: var(--accent-red);
-      margin-bottom: 8px;
-    }
-
-    .modal-body {
-      font-size: 0.84rem;
-      color: var(--text-muted);
-      margin-bottom: 16px;
-    }
-
-    .modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    footer {
-      text-align: center;
-      padding: 16px;
-      font-size: 0.75rem;
-      color: var(--text-sub);
-      border-top: 1px solid var(--border-color);
-      margin-top: auto;
-    }
+    .line { line-height: 1.35; word-break: break-all; }
+    .time { color: var(--muted); font-size: 0.72rem; margin-right: 6px; }
+    .sys { color: var(--yellow); }
+    .rx { color: var(--green); }
+    .tx { color: var(--cyan); }
+    .err { color: var(--red); }
   </style>
 </head>
 <body>
 
-  <!-- Header -->
+  <!-- Top Bar -->
   <header>
-    <div class="header-container">
-      <div class="brand">
-        <div class="brand-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 7h10.29l1.04 3H5.81l1.04-3zM19 17H5v-4h14v4z"/><circle cx="7.5" cy="15" r="1.5"/><circle cx="16.5" cy="15" r="1.5"/></svg>
-        </div>
-        <div class="brand-text">
-          <h1>ELM327 Control Center</h1>
-          <span>Interfaz Web OBD-II BLE</span>
-        </div>
-      </div>
+    <div class="brand">
+      <h1>ESP32 ShiftLight BLE Control</h1>
+    </div>
 
-      <div class="header-actions">
-        <div class="status-badge" id="statusBadge">
-          <div class="status-dot"></div>
-          <span id="statusText">Desconectado</span>
-        </div>
-
-        <button id="btnConnect" class="btn btn-primary">Conectar BLE</button>
-        <button id="btnDemo" class="btn btn-demo">Simulación</button>
+    <div class="actions">
+      <div class="status-pill" id="statusPill">
+        <div class="dot"></div>
+        <span id="statusText">Desconectado</span>
       </div>
+      <button id="btnConnect" class="primary">Conectar ESP32 BLE</button>
     </div>
   </header>
 
-  <!-- Tabs Navigation -->
-  <div class="tabs-nav">
-    <button class="tab-btn active" data-tab="tab-dashboard">Dashboard</button>
-    <button class="tab-btn" data-tab="tab-dtc">Diagnóstico DTC</button>
-    <button class="tab-btn" data-tab="tab-sensors">Sensores</button>
-    <button class="tab-btn" data-tab="tab-terminal">Terminal</button>
-    <button class="tab-btn" data-tab="tab-settings">Configuración</button>
-  </div>
-
-  <!-- Main Content -->
   <main>
 
-    <!-- Tab 1: Dashboard -->
-    <div id="tab-dashboard" class="tab-content active">
-      
-      <div class="controls-bar">
-        <div class="control-group">
-          <span class="control-label">Intervalo lecturas:</span>
-          <select id="pollingSpeed">
-            <option value="250">250 ms</option>
-            <option value="500" selected>500 ms</option>
-            <option value="1000">1000 ms</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <span class="control-label">Unidades:</span>
-          <select id="unitSystem">
-            <option value="metric" selected>Métrico (km/h, °C)</option>
-            <option value="imperial">Imperial (mph, °F)</option>
-          </select>
-        </div>
+    <!-- RPM & Status Card -->
+    <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <div class="card-title" style="margin: 0;">Motor Opel Corsa Diesel</div>
+        <div style="font-size: 0.8rem; color: var(--muted); margin-top: 2px;">83 LEDs WS2812B (GPIO 33) • 60 FPS</div>
       </div>
-
-      <div class="dashboard-grid">
-        
-        <!-- RPM Gauge -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Revoluciones Motor</span>
-          </div>
-          <div class="gauge-wrapper">
-            <svg class="gauge-svg" viewBox="0 0 100 60">
-              <path class="gauge-bg" d="M 10 50 A 40 40 0 0 1 90 50" />
-              <path class="gauge-fill" id="rpmArc" d="M 10 50 A 40 40 0 0 1 90 50" />
-            </svg>
-            <div class="gauge-value-display">
-              <div class="gauge-val" id="valRpm">0</div>
-              <div class="gauge-unit">RPM</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Speed Gauge -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Velocidad</span>
-          </div>
-          <div class="gauge-wrapper">
-            <svg class="gauge-svg" viewBox="0 0 100 60">
-              <path class="gauge-bg" d="M 10 50 A 40 40 0 0 1 90 50" />
-              <path class="gauge-fill" id="speedArc" d="M 10 50 A 40 40 0 0 1 90 50" />
-            </svg>
-            <div class="gauge-value-display">
-              <div class="gauge-val" id="valSpeed">0</div>
-              <div class="gauge-unit" id="unitSpeed">km/h</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Coolant Temp Card -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Temp. Refrigerante</span>
-          </div>
-          <div class="metric-value-row">
-            <span class="metric-val" id="valTemp">--</span>
-            <span class="metric-unit" id="unitTemp">°C</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" id="barTemp"></div>
-          </div>
-        </div>
-
-        <!-- Battery Voltage Card -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Voltaje Batería</span>
-          </div>
-          <div class="metric-value-row">
-            <span class="metric-val" id="valVolts">--</span>
-            <span class="metric-unit">V</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" id="barVolts" style="background: var(--accent-green);"></div>
-          </div>
-        </div>
-
-        <!-- Engine Load Card -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Carga Motor</span>
-          </div>
-          <div class="metric-value-row">
-            <span class="metric-val" id="valLoad">--</span>
-            <span class="metric-unit">%</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" id="barLoad"></div>
-          </div>
-        </div>
-
-        <!-- Throttle Position Card -->
-        <div class="card">
-          <div class="card-header">
-            <span class="card-title">Posición Mariposa</span>
-          </div>
-          <div class="metric-value-row">
-            <span class="metric-val" id="valThrottle">--</span>
-            <span class="metric-unit">%</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div class="progress-bar-fill" id="barThrottle"></div>
-          </div>
-        </div>
-
+      <div class="rpm-display-box">
+        <span class="rpm-val" id="valRpm">0</span>
+        <span style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">RPM</span>
       </div>
     </div>
 
-    <!-- Tab 2: DTC Diagnostics -->
-    <div id="tab-dtc" class="tab-content">
-      <div class="controls-bar">
-        <div class="dtc-actions">
-          <button id="btnReadDtc" class="btn btn-primary">Leer DTC (Modo 03)</button>
-          <button id="btnReadPendingDtc" class="btn btn-secondary">Pendientes (Modo 07)</button>
-          <button id="btnClearDtc" class="btn btn-danger">Borrar Errores (Modo 04)</button>
-        </div>
+    <!-- Mode Selector Card -->
+    <div class="card">
+      <div class="card-title">Modos de Iluminación</div>
+
+      <div class="mode-grid">
+        <button class="mode-btn active" data-mode="1">🚗 Tacómetro RPM</button>
+        <button class="mode-btn" data-mode="2">🎨 Color Fijo</button>
+        <button class="mode-btn" data-mode="3">🌈 Arcoíris</button>
+        <button class="mode-btn" data-mode="4">💨 Respiración</button>
+        <button class="mode-btn" data-mode="5">🚨 Estroboscópico</button>
+        <button class="mode-btn" data-mode="0">🎬 Bienvenida</button>
+        <button class="mode-btn" data-mode="6">❌ Apagado</button>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Códigos de Diagnóstico Registrados</span>
+      <div class="controls-row">
+        <div class="control-item">
+          <span>Color:</span>
+          <input type="color" id="pickerColor" value="#0096ff">
         </div>
-        
-        <div id="dtcContainer" class="dtc-list">
-          <div class="empty-state">
-            Sin lecturas activas. Pulse 'Leer DTC' para consultar la memoria de la ECU.
-          </div>
+
+        <div class="control-item">
+          <span>Brillo:</span>
+          <input type="range" id="sliderBright" min="5" max="255" value="60">
+          <span id="valBright" style="font-family: monospace; font-size: 0.8rem;">60</span>
         </div>
       </div>
     </div>
 
-    <!-- Tab 3: Sensor Monitor -->
-    <div id="tab-sensors" class="tab-content">
-      <div class="controls-bar">
-        <button id="btnScanPids" class="btn btn-primary">Escanear PIDs Soportados</button>
-        <input type="text" id="filterSensors" placeholder="Filtrar..." style="max-width: 200px;">
+    <!-- Minimal Terminal Console -->
+    <div class="terminal-container">
+      <div class="console-header">
+        <span>BLE DATA LOG</span>
+        <button id="btnClear" style="padding: 2px 8px; font-size: 0.7rem;">Limpiar</button>
       </div>
-
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>PID</th>
-              <th>Sensor</th>
-              <th>Valor</th>
-              <th>Unidad</th>
-              <th>Estado</th>
-            </tr>
-          </thead>
-          <tbody id="sensorsTableBody">
-            <tr>
-              <td colspan="5" class="empty-state">
-                Pulse 'Escanear PIDs' para listar los parámetros soportados por el vehículo.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Tab 4: Terminal AT/OBD -->
-    <div id="tab-terminal" class="tab-content">
-      <div class="terminal-card">
-        <div class="terminal-toolbar">
-          <span class="terminal-title">Monitor Serie BLE</span>
-          <div style="display: flex; gap: 6px;">
-            <button id="btnToggleDecoder" class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.75rem;">Convertidor Hex</button>
-            <button id="btnClearLog" class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.75rem;">Limpiar</button>
-            <button id="btnExportLog" class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.75rem;">Exportar Log</button>
-          </div>
-        </div>
-
-        <div id="decoderPanel" class="decoder-tool-panel" style="display: none;">
-          <span style="font-size: 0.78rem; color: var(--accent-cyan);">Hex -> ASCII:</span>
-          <input type="text" id="hexInputDecoder" placeholder="Ej: 49 02 01 57 30 4C...">
-          <span id="hexDecoderResult" style="font-family: monospace; font-size: 0.82rem; color: var(--accent-green);"></span>
-        </div>
-
-        <div class="quick-macros">
-          <button class="macro-btn" data-cmd="AT Z">AT Z</button>
-          <button class="macro-btn" data-cmd="AT RV">AT RV</button>
-          <button class="macro-btn" data-cmd="AT DP">AT DP</button>
-          <button class="macro-btn" data-cmd="09 02">09 02 (VIN)</button>
-          <button class="macro-btn" data-cmd="01 00">01 00</button>
-          <button class="macro-btn" data-cmd="01 0C">01 0C</button>
-          <button class="macro-btn" data-cmd="01 0D">01 0D</button>
-          <button class="macro-btn" data-cmd="03">03</button>
-          <button class="macro-btn" data-cmd="04">04</button>
-        </div>
-
-        <div id="terminalConsole" class="terminal-console">
-          <div class="log-line log-sys"><span class="log-time">[00:00:00]</span> [SYS] ELM327 Interface Ready.</div>
-        </div>
-
-        <div class="terminal-input-group">
-          <input type="text" id="terminalInput" class="terminal-input" placeholder="Comando AT u OBD (Ej: AT Z, 010C, 03)..." disabled autocomplete="off">
-          <button id="btnSendTerminal" class="btn btn-primary" disabled>Enviar</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tab 5: Settings -->
-    <div id="tab-settings" class="tab-content">
-      <div class="card" style="max-width: 600px; margin: 0 auto;">
-        <div class="card-header">
-          <span class="card-title">Parámetros ELM327 & BLE</span>
-        </div>
-        
-        <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 8px;">
-          <div>
-            <label class="control-label" style="display: block; margin-bottom: 4px;">Protocolo ELM327 (AT SP):</label>
-            <select id="settingProtocol" style="width: 100%;">
-              <option value="0" selected>AT SP 0 - Automático</option>
-              <option value="6">AT SP 6 - ISO 15765-4 CAN (11 bit ID, 500 kbaud)</option>
-              <option value="7">AT SP 7 - ISO 15765-4 CAN (29 bit ID, 500 kbaud)</option>
-              <option value="3">AT SP 3 - ISO 9141-2</option>
-              <option value="5">AT SP 5 - ISO 14230-4 KWP (Fast Init)</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="control-label" style="display: block; margin-bottom: 4px;">Service UUID BLE (GATT):</label>
-            <input type="text" id="settingServiceUuid" value="0000fff0-0000-1000-8000-00805f9b34fb" style="width: 100%; font-family: monospace;">
-          </div>
-
-          <div>
-            <label class="control-label" style="display: block; margin-bottom: 4px;">Comandos de inicialización:</label>
-            <input type="text" id="settingInitCmds" value="AT Z, AT E0, AT L0, AT H0, AT SP 0" style="width: 100%; font-family: monospace;">
-          </div>
-        </div>
+      <div class="console" id="console">
+        <div class="line sys"><span class="time">[00:00:00]</span> [SYS] Conecte mediante Web Bluetooth al ESP32_OBD_ShiftLight.</div>
       </div>
     </div>
 
   </main>
 
-  <!-- Modal Safeguard for Clear DTCs -->
-  <div id="modalClearDtc" class="modal-overlay">
-    <div class="modal-box">
-      <div class="modal-title">Confirmar Borrado de Errores (Modo 04)</div>
-      <div class="modal-body">
-        Se enviará la instrucción 04 a la memoria de la ECU para borrar los fallos almacenados y apagar el indicador Check Engine. Realice esta operación con el motor apagado.
-      </div>
-      <div class="modal-footer">
-        <button id="btnCancelClearDtc" class="btn btn-secondary">Cancelar</button>
-        <button id="btnConfirmClearDtc" class="btn btn-danger">Borrar Errores</button>
-      </div>
-    </div>
-  </div>
-
-  <footer>
-    ELM327 BLE Control Center
-  </footer>
-
-  <!-- Javascript Logic -->
   <script>
-    // System State
-    let bleDevice = null;
-    let rxChar = null, txChar = null;
-    let rxBuffer = "";
+    let esp32Device = null;
+    let modeChar = null, colorChar = null, brightChar = null, rpmChar = null;
     let isConnected = false;
-    let isDemoMode = false;
-    let pollingInterval = null;
-    let cmdQueue = [];
-    let isProcessingQueue = false;
-    let cmdHistory = [];
-    let historyIdx = -1;
 
-    let units = 'metric';
+    const ESP32_SERVICE_UUID = "a21b3690-d98e-11ec-9d64-0242ac120002";
+    const CHAR_MODE    = "a21b3a32-d98e-11ec-9d64-0242ac120002";
+    const CHAR_COLOR   = "a21b3c00-d98e-11ec-9d64-0242ac120002";
+    const CHAR_BRIGHT  = "a21b3d00-d98e-11ec-9d64-0242ac120002";
+    const CHAR_RPM     = "a21b3e00-d98e-11ec-9d64-0242ac120002";
 
-    const KNOWN_SERVICES = [
-      { service: '0000fff0-0000-1000-8000-00805f9b34fb', rx: '0000fff1-0000-1000-8000-00805f9b34fb', tx: '0000fff2-0000-1000-8000-00805f9b34fb' },
-      { service: '0000ffe0-0000-1000-8000-00805f9b34fb', rx: '0000ffe1-0000-1000-8000-00805f9b34fb', tx: '0000ffe1-0000-1000-8000-00805f9b34fb' },
-      { service: '000018f0-0000-1000-8000-00805f9b34fb', rx: '00002af0-0000-1000-8000-00805f9b34fb', tx: '00002af1-0000-1000-8000-00805f9b34fb' }
-    ];
-
-    const DTC_DATABASE = {
-      "P0100": { desc: "Fallo circuito Maza / Sensor MAF", sol: "Revisar conector y limpieza de sensor MAF." },
-      "P0110": { desc: "Fallo Sensor Temperatura Admisión (IAT)", sol: "Comprobar cableado del sensor IAT." },
-      "P0115": { desc: "Fallo Sensor Temperatura Refrigerante (ECT)", sol: "Verificar sensor de temperatura de refrigerante." },
-      "P0120": { desc: "Fallo Sensor Posición Mariposa (TPS)", sol: "Comprobar potenciómetro mariposa." },
-      "P0130": { desc: "Fallo Sonda Lambda (Banco 1 Sensor 1)", sol: "Revisar sonda lambda de escape." },
-      "P0171": { desc: "Mezcla Pobre (Banco 1)", sol: "Revisar tomas de aire no medidas o presión de combustible." },
-      "P0172": { desc: "Mezcla Rica (Banco 1)", sol: "Revisar filtro de aire e inyectores." },
-      "P0300": { desc: "Fallo de encendido detectado", sol: "Revisar bujías, bobinas y encendido." },
-      "P0420": { desc: "Rendimiento Catalizador bajo umbral (Banco 1)", sol: "Revisar sonda lambda posterior y estado del catalizador." }
-    };
-
-    const statusBadge = document.getElementById('statusBadge');
+    const statusPill = document.getElementById('statusPill');
     const statusText = document.getElementById('statusText');
     const btnConnect = document.getElementById('btnConnect');
-    const btnDemo = document.getElementById('btnDemo');
-    
-    const terminalConsole = document.getElementById('terminalConsole');
-    const terminalInput = document.getElementById('terminalInput');
-    const btnSendTerminal = document.getElementById('btnSendTerminal');
+    const consoleEl = document.getElementById('console');
 
-    // UI Tab Navigation
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-
-        btn.classList.add('active');
-        document.getElementById(btn.dataset.tab).classList.add('active');
-      });
-    });
-
-    document.getElementById('unitSystem').addEventListener('change', (e) => {
-      units = e.target.value;
-      document.getElementById('unitSpeed').innerText = units === 'metric' ? 'km/h' : 'mph';
-      document.getElementById('unitTemp').innerText = units === 'metric' ? '°C' : '°F';
-    });
-
-    // BLE Connection
+    // Connect to ESP32 BLE Server
     btnConnect.addEventListener('click', async () => {
       if (isConnected) {
         disconnectBLE();
         return;
       }
+
       try {
         if (!navigator.bluetooth) {
-          log("API Web Bluetooth no disponible.", "err");
-          alert("El navegador no soporta Web Bluetooth. Use Chrome o Edge.");
+          log("Web Bluetooth no disponible.", "err");
+          alert("Usa Google Chrome o Microsoft Edge.");
           return;
         }
 
         updateStatus("connecting", "Buscando...");
-        log("Iniciando búsqueda BLE...", "sys");
+        log("Escaneando dispositivos ESP32...", "sys");
 
-        const targetUuid = document.getElementById('settingServiceUuid').value.trim();
-        const optionalServices = [targetUuid, ...KNOWN_SERVICES.map(s => s.service)];
-
-        bleDevice = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
-          optionalServices: optionalServices
+        esp32Device = await navigator.bluetooth.requestDevice({
+          filters: [{ name: 'ESP32_OBD_ShiftLight' }],
+          optionalServices: [ESP32_SERVICE_UUID]
         });
 
-        bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
-        log(`Dispositivo: ${bleDevice.name || 'ELM327 BLE'}`, "sys");
-        updateStatus("connecting", "Conectando...");
+        esp32Device.addEventListener('gattserverdisconnected', onDisconnected);
+        updateStatus("connecting", "Conectando GATT...");
 
-        const server = await bleDevice.gatt.connect();
-        
-        let service = null;
-        let activeConfig = null;
+        const server = await esp32Device.gatt.connect();
+        const service = await server.getPrimaryService(ESP32_SERVICE_UUID);
 
-        for (const cfg of KNOWN_SERVICES) {
-          try {
-            service = await server.getPrimaryService(cfg.service);
-            activeConfig = cfg;
-            break;
-          } catch(e) {}
-        }
-
-        if (!service && targetUuid) {
-          try {
-            service = await server.getPrimaryService(targetUuid);
-            activeConfig = { service: targetUuid, rx: targetUuid, tx: targetUuid };
-          } catch(e) {}
-        }
-
-        if (!service) throw new Error("Servicio BLE OBD-II no detectado.");
-
-        rxChar = await service.getCharacteristic(activeConfig.rx);
-        await rxChar.startNotifications();
-        rxChar.addEventListener('characteristicvaluechanged', handleBLEData);
+        modeChar = await service.getCharacteristic(CHAR_MODE);
+        colorChar = await service.getCharacteristic(CHAR_COLOR);
+        brightChar = await service.getCharacteristic(CHAR_BRIGHT);
 
         try {
-          txChar = await service.getCharacteristic(activeConfig.tx);
-        } catch(e) {
-          txChar = rxChar;
-        }
+          rpmChar = await service.getCharacteristic(CHAR_RPM);
+          await rpmChar.startNotifications();
+          rpmChar.addEventListener('characteristicvaluechanged', (e) => {
+            const data = new DataView(e.target.value.buffer);
+            if (data.byteLength >= 2) {
+              const rpm = data.getUint16(0, false);
+              document.getElementById('valRpm').innerText = rpm;
+            }
+          });
+        } catch(err) {}
 
         isConnected = true;
-        isDemoMode = false;
-        btnDemo.disabled = true;
         btnConnect.innerText = "Desconectar";
-        btnConnect.classList.replace('btn-primary', 'btn-secondary');
-        terminalInput.disabled = false;
-        btnSendTerminal.disabled = false;
-
-        updateStatus("connected", "Inicializando...");
-        log("GATT Conectado. Enviando comandos iniciales...", "sys");
-
-        const initCmds = document.getElementById('settingInitCmds').value.split(',');
-        for (let cmd of initCmds) {
-          await queueCommand(cmd.trim(), true);
-        }
-
+        btnConnect.classList.replace('primary', '');
         updateStatus("connected", "Conectado");
-        startPolling();
+        log("Conectado con éxito al ESP32.", "sys");
 
       } catch (err) {
-        log("Error: " + err.message, "err");
+        log("Error de conexión: " + err.message, "err");
         updateStatus("disconnected", "Desconectado");
       }
     });
 
     function disconnectBLE() {
-      if (bleDevice && bleDevice.gatt.connected) {
-        bleDevice.gatt.disconnect();
+      if (esp32Device && esp32Device.gatt.connected) {
+        esp32Device.gatt.disconnect();
       }
       onDisconnected();
     }
 
     function onDisconnected() {
       isConnected = false;
-      isDemoMode = false;
-      clearInterval(pollingInterval);
       updateStatus("disconnected", "Desconectado");
-      btnConnect.innerText = "Conectar BLE";
-      btnConnect.classList.replace('btn-secondary', 'btn-primary');
-      btnDemo.disabled = false;
-      terminalInput.disabled = true;
-      btnSendTerminal.disabled = true;
-      log("BLE Desconectado.", "sys");
+      btnConnect.innerText = "Conectar ESP32 BLE";
+      btnConnect.classList.add('primary');
+      log("ESP32 Desconectado.", "sys");
     }
 
     function updateStatus(state, text) {
-      statusBadge.className = "status-badge " + state;
+      statusPill.className = "status-pill " + state;
       statusText.innerText = text;
     }
 
-    function handleBLEData(event) {
-      const dec = new TextDecoder("utf-8");
-      rxBuffer += dec.decode(event.target.value);
+    // Mode Selector Buttons
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
 
-      if (rxBuffer.includes(">")) {
-        const clean = cleanTextOutput(rxBuffer);
-        if (clean) {
-          log("RX <- " + clean, "rx");
-          parseOBDResponse(clean);
+        const modeVal = parseInt(btn.dataset.mode, 10);
+        if (modeChar && isConnected) {
+          await modeChar.writeValue(new Uint8Array([modeVal]));
+          log(`Modo enviado: ${btn.innerText}`, "tx");
         }
-        rxBuffer = "";
-      }
-    }
-
-    function cleanTextOutput(rawStr) {
-      return rawStr
-        .replace(/[\r\n>]/g, ' ')
-        .replace(/\x00/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-
-    function hexToAsciiString(hexStr) {
-      const hexes = hexStr.replace(/[\r\n>]/g, ' ').trim().split(/\s+/);
-      if (hexes.length < 4) return ""; 
-      let ascii = "";
-      let alphaNumCount = 0;
-
-      for (let hex of hexes) {
-        if (!/^[0-9A-Fa-f]{2}$/.test(hex)) return ""; 
-        const num = parseInt(hex, 16);
-        if (num >= 32 && num <= 126) {
-          ascii += String.fromCharCode(num);
-          if ((num >= 48 && num <= 57) || (num >= 65 && num <= 90) || (num >= 97 && num <= 122)) {
-            alphaNumCount++;
-          }
-        }
-      }
-
-      return alphaNumCount >= 4 ? ascii.trim() : "";
-    }
-
-    function queueCommand(cmd, isAuto = false) {
-      return new Promise((resolve) => {
-        cmdQueue.push({ cmd, isAuto, resolve });
-        processQueue();
-      });
-    }
-
-    async function processQueue() {
-      if (isProcessingQueue || cmdQueue.length === 0) return;
-      isProcessingQueue = true;
-
-      const item = cmdQueue.shift();
-      try {
-        if (isDemoMode) {
-          await simulateOBD(item.cmd, item.isAuto);
-        } else if (txChar && isConnected) {
-          if (!item.isAuto) log("TX -> " + item.cmd, "tx");
-          const enc = new TextEncoder();
-          await txChar.writeValueWithoutResponse(enc.encode(item.cmd + "\r"));
-        }
-      } catch (err) {
-        log("Error TX: " + err.message, "err");
-      }
-
-      setTimeout(() => {
-        isProcessingQueue = false;
-        item.resolve();
-        processQueue();
-      }, 120);
-    }
-
-    function startPolling() {
-      clearInterval(pollingInterval);
-      let step = 0;
-
-      const intervalMs = parseInt(document.getElementById('pollingSpeed').value, 10);
-      pollingInterval = setInterval(async () => {
-        if (!isConnected && !isDemoMode) return;
-
-        if (document.activeElement === terminalInput && terminalInput.value.trim() !== "") return;
-
-        if (step === 0) await queueCommand("01 0C", true);      // RPM
-        else if (step === 1) await queueCommand("01 0D", true); // Speed
-        else if (step === 2) await queueCommand("01 05", true); // Temp
-        else if (step === 3) await queueCommand("AT RV", true); // Battery
-        else if (step === 4) await queueCommand("01 04", true); // Load
-        else if (step === 5) await queueCommand("01 11", true); // Throttle
-
-        step = (step + 1) % 6;
-      }, intervalMs);
-    }
-
-    document.getElementById('pollingSpeed').addEventListener('change', startPolling);
-
-    function parseOBDResponse(res) {
-      if (res.includes("41 0C") || res.includes("410C")) {
-        const bytes = extractBytes(res, "0C");
-        if (bytes.length >= 2) {
-          const rpm = Math.round(((bytes[0] * 256) + bytes[1]) / 4);
-          updateGauge('valRpm', 'rpmArc', rpm, 8000);
-        }
-      }
-      else if (res.includes("41 0D") || res.includes("410D")) {
-        const bytes = extractBytes(res, "0D");
-        if (bytes.length >= 1) {
-          let speed = bytes[0];
-          if (units === 'imperial') speed = Math.round(speed * 0.621371);
-          updateGauge('valSpeed', 'speedArc', speed, 240);
-        }
-      }
-      else if (res.includes("41 05") || res.includes("4105")) {
-        const bytes = extractBytes(res, "05");
-        if (bytes.length >= 1) {
-          let temp = bytes[0] - 40;
-          let displayTemp = temp;
-          if (units === 'imperial') displayTemp = Math.round((temp * 9/5) + 32);
-          document.getElementById('valTemp').innerText = displayTemp;
-          document.getElementById('barTemp').style.width = Math.min(100, Math.max(0, (temp + 20) * 0.8)) + "%";
-        }
-      }
-      else if (res.includes("V")) {
-        const match = res.match(/(\d+\.\d+)V?/i);
-        if (match) {
-          const volts = parseFloat(match[1]);
-          document.getElementById('valVolts').innerText = volts.toFixed(1);
-          document.getElementById('barVolts').style.width = Math.min(100, (volts / 15) * 100) + "%";
-        }
-      }
-      else if (res.includes("41 04") || res.includes("4104")) {
-        const bytes = extractBytes(res, "04");
-        if (bytes.length >= 1) {
-          const load = Math.round((bytes[0] * 100) / 255);
-          document.getElementById('valLoad').innerText = load;
-          document.getElementById('barLoad').style.width = load + "%";
-        }
-      }
-      else if (res.includes("41 11") || res.includes("4111")) {
-        const bytes = extractBytes(res, "11");
-        if (bytes.length >= 1) {
-          const throttle = Math.round((bytes[0] * 100) / 255);
-          document.getElementById('valThrottle').innerText = throttle;
-          document.getElementById('barThrottle').style.width = throttle + "%";
-        }
-      }
-      else if (res.startsWith("43") || res.startsWith("47")) {
-        renderDTCResults(res);
-      }
-    }
-
-    function extractBytes(str, pidHex) {
-      const parts = str.replace(/[\r\n>]/g, ' ').trim().split(/\s+/);
-      const pidIdx = parts.indexOf(pidHex);
-      if (pidIdx !== -1 && pidIdx + 1 < parts.length) {
-        return parts.slice(pidIdx + 1).map(hex => parseInt(hex, 16)).filter(n => !isNaN(n));
-      }
-      return [];
-    }
-
-    function updateGauge(valId, arcId, val, maxVal) {
-      document.getElementById(valId).innerText = val;
-      const pct = Math.min(1, val / maxVal);
-      const dashoffset = 220 - (pct * 220);
-      document.getElementById(arcId).style.strokeDashoffset = dashoffset;
-    }
-
-    document.getElementById('btnReadDtc').addEventListener('click', async () => {
-      log("Lectura DTC (Modo 03)...", "sys");
-      await queueCommand("03");
-    });
-
-    document.getElementById('btnReadPendingDtc').addEventListener('click', async () => {
-      log("Lectura DTC pendientes (Modo 07)...", "sys");
-      await queueCommand("07");
-    });
-
-    const modalClearDtc = document.getElementById('modalClearDtc');
-    document.getElementById('btnClearDtc').addEventListener('click', () => {
-      modalClearDtc.classList.add('active');
-    });
-    document.getElementById('btnCancelClearDtc').addEventListener('click', () => {
-      modalClearDtc.classList.remove('active');
-    });
-    document.getElementById('btnConfirmClearDtc').addEventListener('click', async () => {
-      modalClearDtc.classList.remove('active');
-      log("Borrado DTC (Modo 04)...", "sys");
-      await queueCommand("04");
-    });
-
-    function renderDTCResults(res) {
-      const container = document.getElementById('dtcContainer');
-      const clean = res.replace(/[\r\n>]/g, ' ').trim();
-      const parts = clean.split(/\s+/);
-      let dtcList = [];
-
-      if (parts[0] === '43' || parts[0] === '47') {
-        for (let i = 2; i < parts.length - 1; i += 2) {
-          const b1 = parseInt(parts[i], 16);
-          const b2 = parseInt(parts[i+1], 16);
-          if (isNaN(b1) || isNaN(b2) || (b1 === 0 && b2 === 0)) continue;
-
-          const typeChar = ['P', 'C', 'B', 'U'][(b1 & 0xC0) >> 6];
-          const d1 = (b1 & 0x30) >> 4;
-          const d2 = b1 & 0x0F;
-          const d3 = (b2 & 0xF0) >> 4;
-          const d4 = b2 & 0x0F;
-
-          const codeStr = `${typeChar}${d1}${d2.toString(16)}${d3.toString(16)}${d4.toString(16)}`.toUpperCase();
-          if (!dtcList.includes(codeStr)) dtcList.push(codeStr);
-        }
-      }
-
-      if (dtcList.length === 0) {
-        container.innerHTML = `
-          <div class="empty-state" style="color: var(--accent-green);">
-            Sin códigos de avería almacenados en memoria.
-          </div>
-        `;
-        return;
-      }
-
-      container.innerHTML = dtcList.map(code => {
-        const info = DTC_DATABASE[code] || { desc: "Código de avería OBD-II sin descripción genérica.", sol: "Consulte el manual técnico de servicio." };
-        return `
-          <div class="dtc-item">
-            <div class="dtc-code-row">
-              <span class="dtc-code">${code}</span>
-              <span class="dtc-type-tag">Error Registrado</span>
-            </div>
-            <div class="dtc-desc">${info.desc}</div>
-            <div class="dtc-solution">Diagnóstico: ${info.sol}</div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    document.getElementById('btnScanPids').addEventListener('click', async () => {
-      log("Escaneando PIDs (01 00)...", "sys");
-      await queueCommand("01 00");
-    });
-
-    btnSendTerminal.addEventListener('click', sendManualTerminalCmd);
-    terminalInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') sendManualTerminalCmd();
-      else if (e.key === 'ArrowUp') {
-        if (historyIdx < cmdHistory.length - 1) {
-          historyIdx++;
-          terminalInput.value = cmdHistory[cmdHistory.length - 1 - historyIdx];
-        }
-      } else if (e.key === 'ArrowDown') {
-        if (historyIdx > 0) {
-          historyIdx--;
-          terminalInput.value = cmdHistory[cmdHistory.length - 1 - historyIdx];
-        } else if (historyIdx === 0) {
-          historyIdx = -1;
-          terminalInput.value = "";
-        }
-      }
-    });
-
-    async function sendManualTerminalCmd() {
-      const cmd = terminalInput.value.trim();
-      if (!cmd) return;
-
-      cmdHistory.push(cmd);
-      historyIdx = -1;
-
-      await queueCommand(cmd, false);
-      terminalInput.value = "";
-    }
-
-    document.querySelectorAll('.macro-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        terminalInput.value = btn.dataset.cmd;
-        sendManualTerminalCmd();
       });
     });
 
-    const decoderPanel = document.getElementById('decoderPanel');
-    document.getElementById('btnToggleDecoder').addEventListener('click', () => {
-      decoderPanel.style.display = decoderPanel.style.display === 'none' ? 'flex' : 'none';
+    // Color Picker
+    document.getElementById('pickerColor').addEventListener('change', async (e) => {
+      const hex = e.target.value;
+      const r = parseInt(hex.substr(1,2), 16);
+      const g = parseInt(hex.substr(3,2), 16);
+      const b = parseInt(hex.substr(5,2), 16);
+
+      if (colorChar && isConnected) {
+        await colorChar.writeValue(new Uint8Array([r, g, b]));
+        log(`Color enviado: RGB(${r},${g},${b})`, "tx");
+      }
     });
 
-    document.getElementById('hexInputDecoder').addEventListener('input', (e) => {
-      const ascii = hexToAsciiString(e.target.value);
-      document.getElementById('hexDecoderResult').innerText = ascii ? `➔ "${ascii}"` : '';
+    // Brightness Slider
+    document.getElementById('sliderBright').addEventListener('input', async (e) => {
+      const val = parseInt(e.target.value, 10);
+      document.getElementById('valBright').innerText = val;
+
+      if (brightChar && isConnected) {
+        await brightChar.writeValue(new Uint8Array([val]));
+      }
     });
 
     function log(msg, type = "sys") {
       const timeStr = new Date().toLocaleTimeString();
-      const cleanMsg = cleanTextOutput(msg);
-
-      let asciiTag = "";
-      if (type === "rx" && cleanMsg.length > 10) {
-        const ascii = hexToAsciiString(cleanMsg);
-        if (ascii && ascii.length >= 4) {
-          asciiTag = `<span class="ascii-decode-tag">[VIN: ${escapeHtml(ascii)}]</span>`;
-        }
-      }
-
       const line = document.createElement('div');
-      line.className = `log-line log-${type}`;
-      line.innerHTML = `<span class="log-time">[${timeStr}]</span> ${escapeHtml(cleanMsg)} ${asciiTag}`;
-      terminalConsole.appendChild(line);
-      terminalConsole.scrollTop = terminalConsole.scrollHeight;
+      line.className = `line ${type}`;
+      line.innerHTML = `<span class="time">[${timeStr}]</span> ${msg}`;
+      consoleEl.appendChild(line);
+      consoleEl.scrollTop = consoleEl.scrollHeight;
     }
 
-    function escapeHtml(text) {
-      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-
-    document.getElementById('btnClearLog').addEventListener('click', () => {
-      terminalConsole.innerHTML = "";
+    document.getElementById('btnClear').addEventListener('click', () => {
+      consoleEl.innerHTML = "";
     });
-
-    document.getElementById('btnExportLog').addEventListener('click', () => {
-      const logLines = Array.from(terminalConsole.querySelectorAll('.log-line'));
-      const textContent = logLines.map(line => line.innerText.replace(/\s+/g, ' ').trim()).join('\r\n');
-
-      const blob = new Blob([textContent], { type: 'text/plain;charset=utf-8' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `elm327-log-${Date.now()}.txt`;
-      a.click();
-    });
-
-    btnDemo.addEventListener('click', () => {
-      if (isConnected) disconnectBLE();
-
-      isDemoMode = !isDemoMode;
-      if (isDemoMode) {
-        btnDemo.innerText = "Salir Simulación";
-        updateStatus("demo", "Simulación");
-        terminalInput.disabled = false;
-        btnSendTerminal.disabled = false;
-        log("Modo Simulación activo.", "sys");
-        startPolling();
-      } else {
-        btnDemo.innerText = "Simulación";
-        updateStatus("disconnected", "Desconectado");
-        terminalInput.disabled = true;
-        btnSendTerminal.disabled = true;
-        clearInterval(pollingInterval);
-        log("Simulación desactivada.", "sys");
-      }
-    });
-
-    async function simulateOBD(cmd, isAuto) {
-      if (!isAuto) log("TX -> " + cmd, "tx");
-      await new Promise(r => setTimeout(r, 50));
-
-      let response = "OK";
-      const cleanCmd = cmd.replace(/\s+/g, '').toUpperCase();
-
-      if (cleanCmd === "ATZ") response = "ELM327 v2.1";
-      else if (cleanCmd === "ATRV") response = (12.4 + Math.random() * 1.8).toFixed(1) + "V";
-      else if (cleanCmd === "ATDP") response = "AUTO, ISO 15765-4 (CAN 11/500)";
-      else if (cleanCmd === "0902") response = "49 02 01 57 30 4C 30 30 30 30 30 30 31 32 33 41 42"; // Mock VIN: W0L000000123AB
-      else if (cleanCmd === "010C") {
-        const rpmVal = Math.round(800 + Math.random() * 2500);
-        const hexVal = (rpmVal * 4).toString(16).padStart(4, '0');
-        response = `41 0C ${hexVal.substring(0,2)} ${hexVal.substring(2,4)}`;
-      }
-      else if (cleanCmd === "010D") {
-        const speedVal = Math.round(40 + Math.sin(Date.now() / 2000) * 35);
-        response = `41 0D ${speedVal.toString(16).padStart(2, '0')}`;
-      }
-      else if (cleanCmd === "0105") {
-        const tempVal = Math.round(88 + Math.random() * 4);
-        response = `41 05 ${(tempVal + 40).toString(16).padStart(2, '0')}`;
-      }
-      else if (cleanCmd === "0104") {
-        const loadVal = Math.round(25 + Math.random() * 30);
-        response = `41 04 ${Math.round((loadVal * 255)/100).toString(16).padStart(2, '0')}`;
-      }
-      else if (cleanCmd === "0111") {
-        const thrVal = Math.round(18 + Math.random() * 15);
-        response = `41 11 ${Math.round((thrVal * 255)/100).toString(16).padStart(2, '0')}`;
-      }
-      else if (cleanCmd === "03") response = "43 02 01 71 03 00";
-      else if (cleanCmd === "07") response = "47 00";
-      else if (cleanCmd === "04") response = "44 OK";
-      else if (cleanCmd === "0100") {
-        response = "41 00 BE 3E A8 13";
-        populateSensorTableDemo();
-      }
-
-      log("RX <- " + response, "rx");
-      parseOBDResponse(response);
-    }
-
-    function populateSensorTableDemo() {
-      const tbody = document.getElementById('sensorsTableBody');
-      tbody.innerHTML = `
-        <tr><td class="pid-tag">010C</td><td>Revoluciones Motor</td><td>1450</td><td>RPM</td><td>OK</td></tr>
-        <tr><td class="pid-tag">010D</td><td>Velocidad Vehículo</td><td>65</td><td>km/h</td><td>OK</td></tr>
-        <tr><td class="pid-tag">0105</td><td>Temp. Refrigerante</td><td>91</td><td>°C</td><td>OK</td></tr>
-        <tr><td class="pid-tag">0104</td><td>Carga Motor</td><td>34</td><td>%</td><td>OK</td></tr>
-        <tr><td class="pid-tag">0111</td><td>Posición Mariposa</td><td>22</td><td>%</td><td>OK</td></tr>
-        <tr><td class="pid-tag">010F</td><td>Temp. Admisión</td><td>28</td><td>°C</td><td>OK</td></tr>
-      `;
-    }
   </script>
 </body>
 </html>
