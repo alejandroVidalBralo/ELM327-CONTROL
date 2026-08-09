@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ESP32 ShiftLight & ELM327 BLE Control</title>
+  <title>Control de Iluminación & Terminal ELM327 BLE</title>
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,7 +35,7 @@
       flex-direction: column;
     }
 
-    /* Top Bar */
+    /* Header & Navigation */
     header {
       background: var(--panel-bg);
       border-bottom: 1px solid var(--border);
@@ -43,7 +43,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
+      gap: 16px;
       flex-wrap: wrap;
     }
 
@@ -52,6 +52,38 @@
       font-size: 1rem;
       font-weight: 600;
       color: #f0f6fc;
+    }
+
+    /* Tabs */
+    .tabs-nav {
+      display: flex;
+      gap: 6px;
+      background: #161b22;
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+    }
+
+    .tab-btn.active {
+      background: #21262d;
+      color: var(--cyan);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
     }
 
     .status-pill {
@@ -75,8 +107,6 @@
     .status-pill.connected .dot { background-color: var(--green); box-shadow: 0 0 6px var(--green); }
     .status-pill.connecting .dot { background-color: var(--yellow); }
 
-    .actions { display: flex; gap: 8px; }
-
     button {
       background: #21262d;
       color: #c9d1d9;
@@ -92,6 +122,8 @@
     button:hover { background: #30363d; }
     button.primary { background: #1f6feb; color: #fff; border-color: #1f6feb; }
     button.primary:hover { background: #388bfd; }
+    button.danger { background: #da3633; color: #fff; border-color: #da3633; }
+    button.danger:hover { background: #f85149; }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* Layout */
@@ -104,6 +136,16 @@
       flex-direction: column;
       gap: 16px;
       flex: 1;
+    }
+
+    .tab-content {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .tab-content.active {
+      display: flex;
     }
 
     .card {
@@ -184,7 +226,7 @@
       cursor: pointer;
     }
 
-    /* Live RPM Header Display */
+    /* Live RPM Display */
     .rpm-display-box {
       display: flex;
       align-items: baseline;
@@ -205,7 +247,7 @@
       border-radius: 8px;
       display: flex;
       flex-direction: column;
-      height: 340px;
+      height: 380px;
       overflow: hidden;
     }
 
@@ -215,6 +257,7 @@
       border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
+      align-items: center;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.75rem;
       color: var(--muted);
@@ -225,97 +268,218 @@
       padding: 10px 12px;
       background: var(--bg);
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 4px;
     }
 
-    .line { line-height: 1.35; word-break: break-all; }
+    .line { line-height: 1.4; word-break: break-all; }
     .time { color: var(--muted); font-size: 0.72rem; margin-right: 6px; }
     .sys { color: var(--yellow); }
     .rx { color: var(--green); }
     .tx { color: var(--cyan); }
     .err { color: var(--red); }
+
+    /* Command Inputs & Quick Action Grid */
+    .command-bar {
+      display: flex;
+      gap: 8px;
+      padding: 10px;
+      background: #161b22;
+      border-top: 1px solid var(--border);
+    }
+
+    .command-bar input[type="text"] {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+    }
+
+    .command-bar input[type="text"]:focus {
+      outline: none;
+      border-color: var(--cyan);
+    }
+
+    .quick-cmds {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .quick-btn {
+      padding: 4px 10px;
+      font-size: 0.72rem;
+      font-family: 'JetBrains Mono', monospace;
+      background: #161b22;
+      border-color: var(--border);
+    }
+
+    .quick-btn:hover {
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
   </style>
 </head>
 <body>
 
-  <!-- Top Bar -->
+  <!-- Top Header & Tabs Navigation -->
   <header>
     <div class="brand">
-      <h1>ESP32 ShiftLight BLE Control</h1>
+      <h1>ELM327 BLE Control Center</h1>
     </div>
 
-    <div class="actions">
-      <div class="status-pill" id="statusPill">
-        <div class="dot"></div>
-        <span id="statusText">Desconectado</span>
-      </div>
-      <button id="btnConnect" class="primary">Conectar ESP32 BLE</button>
+    <div class="tabs-nav">
+      <button class="tab-btn active" data-tab="esp32Tab">⚡ Control ESP32 LED</button>
+      <button class="tab-btn" data-tab="elmTab">💻 Terminal ELM327 BLE Directo</button>
     </div>
   </header>
 
   <main>
 
-    <!-- RPM & Status Card -->
-    <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-      <div>
-        <div class="card-title" style="margin: 0;">Motor Opel Corsa Diesel</div>
-        <div style="font-size: 0.8rem; color: var(--muted); margin-top: 2px;">83 LEDs WS2812B (GPIO 33) • 60 FPS</div>
+    <!-- ================= TAB 1: ESP32 LED CONTROL ================= -->
+    <div id="esp32Tab" class="tab-content active">
+      
+      <!-- Top Action Row -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div class="status-pill" id="esp32StatusPill">
+          <div class="dot"></div>
+          <span id="esp32StatusText">ESP32 Desconectado</span>
+        </div>
+        <button id="btnConnectEsp32" class="primary">Conectar ESP32 BLE</button>
       </div>
-      <div class="rpm-display-box">
-        <span class="rpm-val" id="valRpm">0</span>
-        <span style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">RPM</span>
+
+      <!-- RPM & Hardware Status Card -->
+      <div class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <div class="card-title" style="margin: 0;">Motor Opel Corsa Diesel</div>
+          <div style="font-size: 0.8rem; color: var(--muted); margin-top: 2px;">4 Canales (GPIO 33, 32, 25, 26) • 83 LEDs c/u • 60 FPS</div>
+        </div>
+        <div class="rpm-display-box">
+          <span class="rpm-val" id="valRpm">0</span>
+          <span style="font-size: 0.85rem; color: var(--muted); font-weight: 600;">RPM</span>
+        </div>
+      </div>
+
+      <!-- Mode Selector Card -->
+      <div class="card">
+        <div class="card-title">Modos de Iluminación</div>
+
+        <div class="mode-grid">
+          <button class="mode-btn active" data-mode="1">🚗 Tacómetro RPM</button>
+          <button class="mode-btn" data-mode="2">🎨 Color Fijo</button>
+          <button class="mode-btn" data-mode="3">🌈 Arcoíris</button>
+          <button class="mode-btn" data-mode="4">💨 Respiración</button>
+          <button class="mode-btn" data-mode="5">🚨 Estroboscópico</button>
+          <button class="mode-btn" data-mode="0">🎬 Bienvenida</button>
+          <button class="mode-btn" data-mode="6">❌ Apagado</button>
+        </div>
+
+        <div class="controls-row">
+          <div class="control-item">
+            <span>Color:</span>
+            <input type="color" id="pickerColor" value="#00b4ff">
+          </div>
+
+          <div class="control-item">
+            <span>Brillo:</span>
+            <input type="range" id="sliderBright" min="5" max="255" value="255">
+            <span id="valBright" style="font-family: monospace; font-size: 0.8rem;">255</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ESP32 Console -->
+      <div class="terminal-container">
+        <div class="console-header">
+          <span>ESP32 BLE DATA LOG</span>
+          <button id="btnClearEsp32" style="padding: 2px 8px; font-size: 0.7rem;">Limpiar</button>
+        </div>
+        <div class="console" id="consoleEsp32">
+          <div class="line sys"><span class="time">[00:00:00]</span> [SYS] Conecte mediante Web Bluetooth al ESP32_OBD_ShiftLight.</div>
+        </div>
       </div>
     </div>
 
-    <!-- Mode Selector Card -->
-    <div class="card">
-      <div class="card-title">Modos de Iluminación</div>
 
-      <div class="mode-grid">
-        <button class="mode-btn active" data-mode="1">🚗 Tacómetro RPM</button>
-        <button class="mode-btn" data-mode="2">🎨 Color Fijo</button>
-        <button class="mode-btn" data-mode="3">🌈 Arcoíris</button>
-        <button class="mode-btn" data-mode="4">💨 Respiración</button>
-        <button class="mode-btn" data-mode="5">🚨 Estroboscópico</button>
-        <button class="mode-btn" data-mode="0">🎬 Bienvenida</button>
-        <button class="mode-btn" data-mode="6">❌ Apagado</button>
-      </div>
-
-      <div class="controls-row">
-        <div class="control-item">
-          <span>Color:</span>
-          <input type="color" id="pickerColor" value="#0096ff">
+    <!-- ================= TAB 2: TERMINAL SERIE ELM327 BLE DIRECTO ================= -->
+    <div id="elmTab" class="tab-content">
+      
+      <!-- Top Action Row -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div class="status-pill" id="elmStatusPill">
+          <div class="dot"></div>
+          <span id="elmStatusText">ELM327 Desconectado</span>
         </div>
+        <button id="btnConnectElm" class="primary">Conectar ELM327 BLE Directo</button>
+      </div>
 
-        <div class="control-item">
-          <span>Brillo:</span>
-          <input type="range" id="sliderBright" min="5" max="255" value="60">
-          <span id="valBright" style="font-family: monospace; font-size: 0.8rem;">60</span>
+      <!-- Quick Commands Card -->
+      <div class="card">
+        <div class="card-title">Comandos de Acceso Rápido AT / OBD-II</div>
+        <div class="quick-cmds">
+          <button class="quick-btn" data-cmd="AT Z">AT Z (Reset)</button>
+          <button class="quick-btn" data-cmd="AT E0">AT E0 (Echo Off)</button>
+          <button class="quick-btn" data-cmd="AT SP 0">AT SP 0 (Auto Protocol)</button>
+          <button class="quick-btn" data-cmd="01 00">01 00 (PIDs 01-20)</button>
+          <button class="quick-btn" data-cmd="01 0C">01 0C (RPM Motor)</button>
+          <button class="quick-btn" data-cmd="01 0D">01 0D (Velocidad km/h)</button>
+          <button class="quick-btn" data-cmd="01 05">01 05 (Temp. Refrigerante)</button>
+          <button class="quick-btn" data-cmd="01 0F">01 0F (Temp. Admisión)</button>
+          <button class="quick-btn" data-cmd="01 11">01 11 (Posición Acelerador)</button>
+          <button class="quick-btn" data-cmd="03">03 (Leer DTCs Error)</button>
+          <button class="quick-btn" data-cmd="04">04 (Borrar DTCs Error)</button>
         </div>
       </div>
-    </div>
 
-    <!-- Minimal Terminal Console -->
-    <div class="terminal-container">
-      <div class="console-header">
-        <span>BLE DATA LOG</span>
-        <button id="btnClear" style="padding: 2px 8px; font-size: 0.7rem;">Limpiar</button>
-      </div>
-      <div class="console" id="console">
-        <div class="line sys"><span class="time">[00:00:00]</span> [SYS] Conecte mediante Web Bluetooth al ESP32_OBD_ShiftLight.</div>
+      <!-- Terminal Output & Input -->
+      <div class="terminal-container" style="height: 440px;">
+        <div class="console-header">
+          <span>TERMINAL SERIE DIRECTO ELM327 BLE</span>
+          <div style="display: flex; gap: 6px;">
+            <button id="btnCopyElm" style="padding: 2px 8px; font-size: 0.7rem;">Copiar Log</button>
+            <button id="btnClearElm" style="padding: 2px 8px; font-size: 0.7rem;">Limpiar</button>
+          </div>
+        </div>
+        <div class="console" id="consoleElm">
+          <div class="line sys"><span class="time">[00:00:00]</span> [SYS] Terminal libre listo. Presione 'Conectar ELM327 BLE Directo' para escanear su adaptador Bluetooth.</div>
+        </div>
+        <div class="command-bar">
+          <input type="text" id="inputCmd" placeholder="Escriba un comando AT u OBD-II (ej. 01 0C)..." autocomplete="off">
+          <button id="btnSendCmd" class="primary">Enviar</button>
+        </div>
       </div>
     </div>
 
   </main>
 
   <script>
+    // ==========================================
+    // SISTEMA DE PESTAÑAS (TABS)
+    // ==========================================
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ==========================================
+    // SECCIÓN 1: ESP32 BLE SHIFTLIGHT CONTROL
+    // ==========================================
     let esp32Device = null;
     let modeChar = null, colorChar = null, brightChar = null, rpmChar = null;
-    let isConnected = false;
+    let isEsp32Connected = false;
 
     const ESP32_SERVICE_UUID = "a21b3690-d98e-11ec-9d64-0242ac120002";
     const CHAR_MODE    = "a21b3a32-d98e-11ec-9d64-0242ac120002";
@@ -323,35 +487,34 @@
     const CHAR_BRIGHT  = "a21b3d00-d98e-11ec-9d64-0242ac120002";
     const CHAR_RPM     = "a21b3e00-d98e-11ec-9d64-0242ac120002";
 
-    const statusPill = document.getElementById('statusPill');
-    const statusText = document.getElementById('statusText');
-    const btnConnect = document.getElementById('btnConnect');
-    const consoleEl = document.getElementById('console');
+    const esp32StatusPill = document.getElementById('esp32StatusPill');
+    const esp32StatusText = document.getElementById('esp32StatusText');
+    const btnConnectEsp32 = document.getElementById('btnConnectEsp32');
+    const consoleEsp32 = document.getElementById('consoleEsp32');
 
-    // Connect to ESP32 BLE Server
-    btnConnect.addEventListener('click', async () => {
-      if (isConnected) {
-        disconnectBLE();
+    btnConnectEsp32.addEventListener('click', async () => {
+      if (isEsp32Connected) {
+        disconnectEsp32();
         return;
       }
 
       try {
         if (!navigator.bluetooth) {
-          log("Web Bluetooth no disponible.", "err");
-          alert("Usa Google Chrome o Microsoft Edge.");
+          logEsp32("Web Bluetooth no disponible.", "err");
+          alert("Usa Google Chrome o Microsoft Edge en Android/Desktop.");
           return;
         }
 
-        updateStatus("connecting", "Buscando...");
-        log("Escaneando dispositivos ESP32...", "sys");
+        updateEsp32Status("connecting", "Buscando...");
+        logEsp32("Escaneando dispositivos ESP32_OBD_ShiftLight...", "sys");
 
         esp32Device = await navigator.bluetooth.requestDevice({
           filters: [{ name: 'ESP32_OBD_ShiftLight' }],
           optionalServices: [ESP32_SERVICE_UUID]
         });
 
-        esp32Device.addEventListener('gattserverdisconnected', onDisconnected);
-        updateStatus("connecting", "Conectando GATT...");
+        esp32Device.addEventListener('gattserverdisconnected', onEsp32Disconnected);
+        updateEsp32Status("connecting", "Conectando...");
 
         const server = await esp32Device.gatt.connect();
         const service = await server.getPrimaryService(ESP32_SERVICE_UUID);
@@ -372,86 +535,303 @@
           });
         } catch(err) {}
 
-        isConnected = true;
-        btnConnect.innerText = "Desconectar";
-        btnConnect.classList.remove('primary');
-        updateStatus("connected", "Conectado");
-        log("Conectado con éxito al ESP32.", "sys");
+        isEsp32Connected = true;
+        btnConnectEsp32.innerText = "Desconectar ESP32";
+        btnConnectEsp32.classList.remove('primary');
+        btnConnectEsp32.classList.add('danger');
+        updateEsp32Status("connected", "ESP32 Conectado");
+        logEsp32("Conectado con éxito al ESP32.", "sys");
 
       } catch (err) {
-        log("Error de conexión: " + err.message, "err");
-        updateStatus("disconnected", "Desconectado");
+        logEsp32("Error de conexión: " + err.message, "err");
+        updateEsp32Status("disconnected", "ESP32 Desconectado");
       }
     });
 
-    function disconnectBLE() {
+    function disconnectEsp32() {
       if (esp32Device && esp32Device.gatt.connected) {
         esp32Device.gatt.disconnect();
       }
-      onDisconnected();
+      onEsp32Disconnected();
     }
 
-    function onDisconnected() {
-      isConnected = false;
-      updateStatus("disconnected", "Desconectado");
-      btnConnect.innerText = "Conectar ESP32 BLE";
-      btnConnect.classList.add('primary');
-      log("ESP32 Desconectado.", "sys");
+    function onEsp32Disconnected() {
+      isEsp32Connected = false;
+      updateEsp32Status("disconnected", "ESP32 Desconectado");
+      btnConnectEsp32.innerText = "Conectar ESP32 BLE";
+      btnConnectEsp32.classList.remove('danger');
+      btnConnectEsp32.classList.add('primary');
+      logEsp32("ESP32 Desconectado.", "sys");
     }
 
-    function updateStatus(state, text) {
-      statusPill.className = "status-pill " + state;
-      statusText.innerText = text;
+    function updateEsp32Status(state, text) {
+      esp32StatusPill.className = "status-pill " + state;
+      esp32StatusText.innerText = text;
     }
 
-    // Mode Selector Buttons
     document.querySelectorAll('.mode-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
 
         const modeVal = parseInt(btn.dataset.mode, 10);
-        if (modeChar && isConnected) {
+        if (modeChar && isEsp32Connected) {
           await modeChar.writeValue(new Uint8Array([modeVal]));
-          log(`Modo enviado: ${btn.innerText}`, "tx");
+          logEsp32(`Modo enviado: ${btn.innerText}`, "tx");
         }
       });
     });
 
-    // Color Picker
     document.getElementById('pickerColor').addEventListener('change', async (e) => {
       const hex = e.target.value;
       const r = parseInt(hex.substr(1,2), 16);
       const g = parseInt(hex.substr(3,2), 16);
       const b = parseInt(hex.substr(5,2), 16);
 
-      if (colorChar && isConnected) {
+      if (colorChar && isEsp32Connected) {
         await colorChar.writeValue(new Uint8Array([r, g, b]));
-        log(`Color enviado: RGB(${r},${g},${b})`, "tx");
+        logEsp32(`Color enviado: RGB(${r},${g},${b})`, "tx");
       }
     });
 
-    // Brightness Slider
     document.getElementById('sliderBright').addEventListener('input', async (e) => {
       const val = parseInt(e.target.value, 10);
       document.getElementById('valBright').innerText = val;
 
-      if (brightChar && isConnected) {
+      if (brightChar && isEsp32Connected) {
         await brightChar.writeValue(new Uint8Array([val]));
       }
     });
 
-    function log(msg, type = "sys") {
+    function logEsp32(msg, type = "sys") {
       const timeStr = new Date().toLocaleTimeString();
       const line = document.createElement('div');
       line.className = `line ${type}`;
       line.innerHTML = `<span class="time">[${timeStr}]</span> ${msg}`;
-      consoleEl.appendChild(line);
-      consoleEl.scrollTop = consoleEl.scrollHeight;
+      consoleEsp32.appendChild(line);
+      consoleEsp32.scrollTop = consoleEsp32.scrollHeight;
     }
 
-    document.getElementById('btnClear').addEventListener('click', () => {
-      consoleEl.innerHTML = "";
+    document.getElementById('btnClearEsp32').addEventListener('click', () => {
+      consoleEsp32.innerHTML = "";
+    });
+
+
+    // ==========================================
+    // SECCIÓN 2: TERMINAL SERIE DIRECTO ELM327 BLE
+    // ==========================================
+    let elmDevice = null;
+    let elmTxChar = null;
+    let elmRxChar = null;
+    let isElmConnected = false;
+    let cmdHistory = [];
+    let historyIdx = -1;
+
+    const ELM_SERVICES = [
+      '0000fff0-0000-1000-8000-00805f9b34fb',
+      '0000ffe0-0000-1000-8000-00805f9b34fb',
+      '000018f0-0000-1000-8000-00805f9b34fb',
+      'e7810a71-73ae-499d-8c15-faa9aef0c3f2'
+    ];
+
+    const elmStatusPill = document.getElementById('elmStatusPill');
+    const elmStatusText = document.getElementById('elmStatusText');
+    const btnConnectElm = document.getElementById('btnConnectElm');
+    const consoleElm = document.getElementById('consoleElm');
+    const inputCmd = document.getElementById('inputCmd');
+    const btnSendCmd = document.getElementById('btnSendCmd');
+
+    btnConnectElm.addEventListener('click', async () => {
+      if (isElmConnected) {
+        disconnectElm();
+        return;
+      }
+
+      try {
+        if (!navigator.bluetooth) {
+          logElm("Web Bluetooth no disponible en este navegador.", "err");
+          alert("Usa Google Chrome o Microsoft Edge.");
+          return;
+        }
+
+        updateElmStatus("connecting", "Escaneando...");
+        logElm("Escaneando adaptadores ELM327 BLE...", "sys");
+
+        elmDevice = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ELM_SERVICES
+        });
+
+        elmDevice.addEventListener('gattserverdisconnected', onElmDisconnected);
+        updateElmStatus("connecting", "Conectando...");
+
+        const server = await elmDevice.gatt.connect();
+        logElm(`Conectado a ${elmDevice.name || 'ELM327'}. Buscando servicios...`, "sys");
+
+        // Resolver Servicio de Notificaciones y Escritura
+        let service = null;
+        for (const uuid of ELM_SERVICES) {
+          try {
+            service = await server.getPrimaryService(uuid);
+            if (service) break;
+          } catch(e) {}
+        }
+
+        if (!service) {
+          const services = await server.getPrimaryServices();
+          if (services.length > 0) service = services[0];
+        }
+
+        if (!service) throw new Error("No se encontró ningún servicio BLE compatible en el ELM327.");
+
+        // Resolver Características Rx / Tx
+        const characteristics = await service.getCharacteristics();
+        for (const c of characteristics) {
+          if (c.properties.notify || c.properties.indicate) elmRxChar = c;
+          if (c.properties.write || c.properties.writeWithoutResponse) elmTxChar = c;
+        }
+
+        if (!elmRxChar || !elmTxChar) {
+          // Intentos de fallback con UUIDs estándares conocidos
+          try {
+            elmRxChar = await service.getCharacteristic('0000fff1-0000-1000-8000-00805f9b34fb');
+            elmTxChar = await service.getCharacteristic('0000fff2-0000-1000-8000-00805f9b34fb');
+          } catch(e) {
+            try {
+              elmRxChar = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+              elmTxChar = elmRxChar;
+            } catch(e2) {}
+          }
+        }
+
+        if (!elmRxChar) throw new Error("No se pudo resolver la característica de lectura (Rx) del ELM327.");
+
+        // Iniciar Notificaciones
+        await elmRxChar.startNotifications();
+        let rxAccumulator = "";
+
+        elmRxChar.addEventListener('characteristicvaluechanged', (e) => {
+          const enc = new TextDecoder('utf-8');
+          const chunk = enc.decode(e.target.value);
+
+          for (let i = 0; i < chunk.length; i++) {
+            const ch = chunk[i];
+            if (ch === '>' || ch === '\r' || ch === '\n') {
+              if (rxAccumulator.trim().length > 0) {
+                logElm(`RX < ${rxAccumulator.trim()}`, "rx");
+              }
+              rxAccumulator = "";
+            } else {
+              rxAccumulator += ch;
+            }
+          }
+        });
+
+        isElmConnected = true;
+        btnConnectElm.innerText = "Desconectar ELM327";
+        btnConnectElm.classList.remove('primary');
+        btnConnectElm.classList.add('danger');
+        updateElmStatus("connected", "ELM327 Conectado");
+        logElm(`¡Conectado directamente a ${elmDevice.name || 'ELM327 BLE'}!`, "sys");
+
+      } catch (err) {
+        logElm("Error al conectar ELM327: " + err.message, "err");
+        updateElmStatus("disconnected", "ELM327 Desconectado");
+      }
+    });
+
+    function disconnectElm() {
+      if (elmDevice && elmDevice.gatt.connected) {
+        elmDevice.gatt.disconnect();
+      }
+      onElmDisconnected();
+    }
+
+    function onElmDisconnected() {
+      isElmConnected = false;
+      updateElmStatus("disconnected", "ELM327 Desconectado");
+      btnConnectElm.innerText = "Conectar ELM327 BLE Directo";
+      btnConnectElm.classList.remove('danger');
+      btnConnectElm.classList.add('primary');
+      logElm("Adaptador ELM327 Desconectado.", "sys");
+    }
+
+    function updateElmStatus(state, text) {
+      elmStatusPill.className = "status-pill " + state;
+      elmStatusText.innerText = text;
+    }
+
+    async function sendElmCommand(cmd) {
+      if (!cmd || cmd.trim().length === 0) return;
+      const cleanCmd = cmd.trim();
+
+      if (!isElmConnected || !elmTxChar) {
+        logElm("No hay conexión activa con el ELM327.", "err");
+        return;
+      }
+
+      try {
+        logElm(`TX > ${cleanCmd}`, "tx");
+        const encoder = new TextEncoder();
+        const data = encoder.encode(cleanCmd + "\r");
+        await elmTxChar.writeValue(data);
+
+        cmdHistory.push(cleanCmd);
+        historyIdx = cmdHistory.length;
+      } catch (err) {
+        logElm("Fallo al enviar comando: " + err.message, "err");
+      }
+    }
+
+    btnSendCmd.addEventListener('click', () => {
+      sendElmCommand(inputCmd.value);
+      inputCmd.value = "";
+    });
+
+    inputCmd.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        sendElmCommand(inputCmd.value);
+        inputCmd.value = "";
+      } else if (e.key === 'ArrowUp') {
+        if (historyIdx > 0) {
+          historyIdx--;
+          inputCmd.value = cmdHistory[historyIdx];
+        }
+      } else if (e.key === 'ArrowDown') {
+        if (historyIdx < cmdHistory.length - 1) {
+          historyIdx++;
+          inputCmd.value = cmdHistory[historyIdx];
+        } else {
+          historyIdx = cmdHistory.length;
+          inputCmd.value = "";
+        }
+      }
+    });
+
+    document.querySelectorAll('.quick-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        sendElmCommand(btn.dataset.cmd);
+      });
+    });
+
+    function logElm(msg, type = "sys") {
+      const timeStr = new Date().toLocaleTimeString();
+      const line = document.createElement('div');
+      line.className = `line ${type}`;
+      line.innerHTML = `<span class="time">[${timeStr}]</span> ${msg}`;
+      consoleElm.appendChild(line);
+      consoleElm.scrollTop = consoleElm.scrollHeight;
+    }
+
+    document.getElementById('btnClearElm').addEventListener('click', () => {
+      consoleElm.innerHTML = "";
+    });
+
+    document.getElementById('btnCopyElm').addEventListener('click', () => {
+      const lines = Array.from(consoleElm.querySelectorAll('.line')).map(l => l.innerText);
+      navigator.clipboard.writeText(lines.join('\n')).then(() => {
+        alert("¡Log del Terminal ELM327 copiado al portapapeles!");
+      });
     });
   </script>
 </body>
